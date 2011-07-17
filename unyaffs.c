@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <utime.h>
 
 #include "unyaffs.h"
 
@@ -32,6 +33,16 @@ int warn_count = 0;
 int img_file;
 
 char *obj_list[MAX_OBJECTS];
+
+int set_utime(const char *filename, __u32 yst_atime, __u32 yst_mtime)
+{
+	struct utimbuf ftime;
+
+	ftime.actime  = yst_atime;
+	ftime.modtime = yst_mtime;
+
+	return utime(filename, &ftime);
+}
 
 int read_chunk(void);
 
@@ -101,6 +112,18 @@ int process_chunk(void)
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_UNKNOWN:
+				break;
+		}
+
+		/* set file date and time */
+		switch(oh.type) {
+			case YAFFS_OBJECT_TYPE_FILE:
+			case YAFFS_OBJECT_TYPE_DIRECTORY:
+			case YAFFS_OBJECT_TYPE_SPECIAL:
+				set_utime(full_path_name,
+				          oh.yst_atime, oh.yst_mtime);
+				break;
+			default:
 				break;
 		}
 	} else {
