@@ -21,6 +21,7 @@
 #define CHUNK_SIZE 2048
 #define SPARE_SIZE 64
 #define MAX_OBJECTS 10000
+#define MAX_DIRS    1000
 #define MAX_WARN    20
 #define YAFFS_OBJECTID_ROOT     1
 
@@ -34,6 +35,13 @@ int img_file;
 
 char *obj_list[MAX_OBJECTS];
 
+struct {
+	char *path_name;
+	__u32 yst_atime;
+	__u32 yst_mtime;
+} dir_list[MAX_DIRS];
+int dir_count = 0;
+
 int set_utime(const char *filename, __u32 yst_atime, __u32 yst_mtime)
 {
 	struct utimbuf ftime;
@@ -42,6 +50,14 @@ int set_utime(const char *filename, __u32 yst_atime, __u32 yst_mtime)
 	ftime.modtime = yst_mtime;
 
 	return utime(filename, &ftime);
+}
+
+void set_dirs_utime(void)
+{
+	int i;
+	for (i = dir_count-1; i >= 0; i--)
+		set_utime(dir_list[i].path_name,
+		          dir_list[i].yst_atime, dir_list[i].yst_mtime);
 }
 
 int read_chunk(void);
@@ -118,10 +134,20 @@ int process_chunk(void)
 		/* set file date and time */
 		switch(oh.type) {
 			case YAFFS_OBJECT_TYPE_FILE:
-			case YAFFS_OBJECT_TYPE_DIRECTORY:
 			case YAFFS_OBJECT_TYPE_SPECIAL:
 				set_utime(full_path_name,
 				          oh.yst_atime, oh.yst_mtime);
+				break;
+			case YAFFS_OBJECT_TYPE_DIRECTORY:
+				if (dir_count >= MAX_DIRS) {
+					fprintf(stderr, "Too many directories (more than %d).\n",
+			        		MAX_DIRS);
+					exit(1);
+				}
+				dir_list[dir_count].path_name = full_path_name;
+				dir_list[dir_count].yst_atime = oh.yst_atime;
+				dir_list[dir_count].yst_mtime = oh.yst_mtime;
+				dir_count++;
 				break;
 			default:
 				break;
@@ -178,6 +204,7 @@ int main(int argc, char **argv)
 			break;
 		process_chunk();
 	}
+	set_dirs_utime();
 	close(img_file);
 	return 0;
 }
