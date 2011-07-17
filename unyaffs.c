@@ -7,6 +7,11 @@
  * published by the Free Software Foundation.
  */
 
+/* check if lutimes is available */
+#if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || (defined(__APPLE__) && defined(__MACH__))
+#define HAS_LUTIMES 1
+#endif
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -14,7 +19,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#ifdef HAS_LUTIMES
+#include <sys/time.h>
+#else
 #include <utime.h>
+#endif
 
 #include "unyaffs.h"
 
@@ -44,12 +53,23 @@ int dir_count = 0;
 
 int set_utime(const char *filename, __u32 yst_atime, __u32 yst_mtime)
 {
+#ifdef HAS_LUTIMES
+	struct timeval ftime[2];
+
+	ftime[0].tv_sec  = yst_atime;
+	ftime[0].tv_usec = 0;
+	ftime[1].tv_sec  = yst_mtime;
+	ftime[1].tv_usec = 0;
+
+	return lutimes(filename, ftime);
+#else
 	struct utimbuf ftime;
 
 	ftime.actime  = yst_atime;
 	ftime.modtime = yst_mtime;
 
 	return utime(filename, &ftime);
+#endif
 }
 
 void set_dirs_utime(void)
@@ -135,6 +155,9 @@ int process_chunk(void)
 		switch(oh.type) {
 			case YAFFS_OBJECT_TYPE_FILE:
 			case YAFFS_OBJECT_TYPE_SPECIAL:
+#ifdef HAS_LUTIMES
+			case YAFFS_OBJECT_TYPE_SYMLINK:
+#endif
 				set_utime(full_path_name,
 				          oh.yst_atime, oh.yst_mtime);
 				break;
