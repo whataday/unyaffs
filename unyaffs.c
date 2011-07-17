@@ -108,8 +108,10 @@ int process_chunk(void)
 			exit(1);
 		}
 		strcpy(full_path_name, obj_list[oh.parentObjectId]);
-		strcat(full_path_name, "/");
-		strcat(full_path_name, oh.name);
+		if (oh.name[0] != '\0') {
+			strcat(full_path_name, "/");
+			strcat(full_path_name, oh.name);
+ 		}
 		obj_list[pt->t.objectId] = full_path_name;
 
 		switch(oh.type) {
