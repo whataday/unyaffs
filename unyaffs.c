@@ -78,12 +78,15 @@ int process_chunk(void)
 					remain -= s;
 				}
 				close(out_file);
+				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_SYMLINK:
 				symlink(oh.alias, full_path_name);
+				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_DIRECTORY:
 				mkdir(full_path_name, oh.yst_mode);
+				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_HARDLINK:
 				if (oh.equivalentObjectId >= MAX_OBJECTS || obj_list[oh.equivalentObjectId] == NULL) {
