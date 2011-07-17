@@ -27,12 +27,12 @@
 
 #include "unyaffs.h"
 
-#define CHUNK_SIZE 2048
-#define SPARE_SIZE 64
-#define MAX_OBJECTS 10000
-#define MAX_DIRS    1000
-#define MAX_WARN    20
-#define YAFFS_OBJECTID_ROOT     1
+#define CHUNK_SIZE		 2048
+#define SPARE_SIZE		   64
+#define MAX_OBJECTS		10000
+#define MAX_DIRS		 1000
+#define MAX_WARN		   20
+#define YAFFS_OBJECTID_ROOT	    1
 
 
 unsigned char data[CHUNK_SIZE + SPARE_SIZE];
@@ -51,8 +51,7 @@ struct {
 } dir_list[MAX_DIRS];
 int dir_count = 0;
 
-int set_utime(const char *filename, __u32 yst_atime, __u32 yst_mtime)
-{
+int set_utime(const char *filename, __u32 yst_atime, __u32 yst_mtime) {
 #ifdef HAS_LUTIMES
 	struct timeval ftime[2];
 
@@ -72,8 +71,7 @@ int set_utime(const char *filename, __u32 yst_atime, __u32 yst_mtime)
 #endif
 }
 
-void set_dirs_utime(void)
-{
+void set_dirs_utime(void) {
 	int i;
 	for (i = dir_count-1; i >= 0; i--)
 		set_utime(dir_list[i].path_name,
@@ -82,15 +80,14 @@ void set_dirs_utime(void)
 
 int read_chunk(void);
 
-int process_chunk(void)
-{
+int process_chunk(void) {
 	int out_file, remain, s;
 	char *full_path_name;
 
 	yaffs_PackedTags2 *pt = (yaffs_PackedTags2 *)spare_data;
-	if (pt->t.byteCount == 0xffff)  {	//a new object 
-
+	if (pt->t.byteCount == 0xffff) {	/* a new object */
 		yaffs_ObjectHeader oh = *(yaffs_ObjectHeader *)chunk_data;
+
 		if (pt->t.objectId >= MAX_OBJECTS) {
 			fprintf(stderr, "ObjectId %u (%s) out of range.\n",
 			        pt->t.objectId, oh.name);
@@ -121,7 +118,7 @@ int process_chunk(void)
 				while(remain > 0) {
 					if (read_chunk())
 						return -1;
-					s = (remain < pt->t.byteCount) ? remain : pt->t.byteCount;	
+					s = (remain < pt->t.byteCount) ? remain : pt->t.byteCount;
 					if (write(out_file, chunk_data, s) == -1)
 						return -1;
 					remain -= s;
@@ -140,7 +137,7 @@ int process_chunk(void)
 			case YAFFS_OBJECT_TYPE_HARDLINK:
 				if (oh.equivalentObjectId >= MAX_OBJECTS || obj_list[oh.equivalentObjectId] == NULL) {
 					fprintf(stderr, "Invalid equivalentObjectId %u in object %u (%s)\n",
-			        		oh.equivalentObjectId, pt->t.objectId, oh.name);
+					        oh.equivalentObjectId, pt->t.objectId, oh.name);
 					exit(1);
 				}
 				link(obj_list[oh.equivalentObjectId], full_path_name);
@@ -166,7 +163,7 @@ int process_chunk(void)
 			case YAFFS_OBJECT_TYPE_DIRECTORY:
 				if (dir_count >= MAX_DIRS) {
 					fprintf(stderr, "Too many directories (more than %d).\n",
-			        		MAX_DIRS);
+					        MAX_DIRS);
 					exit(1);
 				}
 				dir_list[dir_count].path_name = full_path_name;
@@ -189,8 +186,7 @@ int process_chunk(void)
 }
 
 
-int read_chunk(void)
-{
+int read_chunk(void) {
 	ssize_t s;
 	int ret = -1;
 
@@ -209,8 +205,7 @@ int read_chunk(void)
 	return ret;
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
 	if (argc != 2) {
 		printf("Usage: unyaffs image_file_name\n");
 		exit(1);
