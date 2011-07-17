@@ -1,0 +1,47 @@
+unyaffs
+=======
+
+Overview
+--------
+
+  Unyaffs is a program to extract files from a YAFFS2 file system image.
+  Currently it can only extract images created by mkyaffs2image.
+
+  Unyaffs is based on work of the YAFFS project, see http://www.yaffs.net/
+
+  The original implementation was done by Kai Wei <kai.wei.cn@gmail.com>,
+  it is available at http://code.google.com/p/unyaffs/
+
+  As the project was inactive, Bernhard Ehlers <be@bernhard-ehlers.de>
+  started a fork at https://github.com/ehlers/unyaffs
+
+
+License
+-------
+
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License version 2 as
+  published by the Free Software Foundation.
+
+  The full license text is available in the file gpl-2.0.txt.
+
+
+Requirements
+------------
+
+  Unyaffs should run on most unix-like operating systems.
+  A C compiler environment and make is neccessary to compile it.
+
+
+Compiling
+---------
+
+  type "make"
+
+
+Usage
+-----
+
+  "unyaffs <yaffs2_image_file_name>" extracts all the files from the image
+  file into the current directory.
+
