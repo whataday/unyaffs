@@ -83,7 +83,7 @@ int process_chunk(void)
 				symlink(oh.alias, full_path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_DIRECTORY:
-				mkdir(full_path_name, 0777);
+				mkdir(full_path_name, oh.yst_mode);
 				break;
 			case YAFFS_OBJECT_TYPE_HARDLINK:
 				if (oh.equivalentObjectId >= MAX_OBJECTS || obj_list[oh.equivalentObjectId] == NULL) {
@@ -141,6 +141,8 @@ int main(int argc, char **argv)
 		printf("open image file failed\n");
 		exit(1);
 	}
+
+	umask(0);
 
 	obj_list[YAFFS_OBJECTID_ROOT] = ".";
 	while(1) {
