@@ -29,7 +29,10 @@ unsigned char *spare_data = data + CHUNK_SIZE;
 int img_file;
 
 char *obj_list[MAX_OBJECTS];
-int process_chunk()
+
+int read_chunk(void);
+
+int process_chunk(void)
 {
 	int out_file, remain, s;
 	char *full_path_name;
@@ -72,12 +75,17 @@ int process_chunk()
 			case YAFFS_OBJECT_TYPE_HARDLINK:
 				link(obj_list[oh->equivalentObjectId], full_path_name);
 				break;
+			case YAFFS_OBJECT_TYPE_SPECIAL:
+				break;
+			case YAFFS_OBJECT_TYPE_UNKNOWN:
+				break;
 		}
 	}
+	return 0;
 }
 
 
-int read_chunk()
+int read_chunk(void)
 {
 	ssize_t s;
 	int ret = -1;
