@@ -20,12 +20,15 @@
 #define CHUNK_SIZE 2048
 #define SPARE_SIZE 64
 #define MAX_OBJECTS 10000
+#define MAX_WARN    20
 #define YAFFS_OBJECTID_ROOT     1
 
 
 unsigned char data[CHUNK_SIZE + SPARE_SIZE];
 unsigned char *chunk_data = data;
 unsigned char *spare_data = data + CHUNK_SIZE;
+int chunk_no   = 0;
+int warn_count = 0;
 int img_file;
 
 char *obj_list[MAX_OBJECTS];
@@ -41,10 +44,21 @@ int process_chunk(void)
 	if (pt->t.byteCount == 0xffff)  {	//a new object 
 
 		yaffs_ObjectHeader oh = *(yaffs_ObjectHeader *)chunk_data;
+		if (pt->t.objectId >= MAX_OBJECTS) {
+			fprintf(stderr, "ObjectId %u (%s) out of range.\n",
+			        pt->t.objectId, oh.name);
+			exit(1);
+		}
+		if (oh.parentObjectId >= MAX_OBJECTS || obj_list[oh.parentObjectId] == NULL) {
+			fprintf(stderr, "Invalid parentObjectId %u in object %u (%s)\n",
+			        oh.parentObjectId, pt->t.objectId, oh.name);
+			exit(1);
+		}
 
 		full_path_name = (char *)malloc(strlen(oh.name) + strlen(obj_list[oh.parentObjectId]) + 2);
 		if (full_path_name == NULL) {
-			perror("malloc full path name\n");
+			fprintf(stderr, "malloc full path name.\n");
+			exit(1);
 		}
 		strcpy(full_path_name, obj_list[oh.parentObjectId]);
 		strcat(full_path_name, "/");
@@ -72,12 +86,24 @@ int process_chunk(void)
 				mkdir(full_path_name, 0777);
 				break;
 			case YAFFS_OBJECT_TYPE_HARDLINK:
+				if (oh.equivalentObjectId >= MAX_OBJECTS || obj_list[oh.equivalentObjectId] == NULL) {
+					fprintf(stderr, "Invalid equivalentObjectId %u in object %u (%s)\n",
+			        		oh.equivalentObjectId, pt->t.objectId, oh.name);
+					exit(1);
+				}
 				link(obj_list[oh.equivalentObjectId], full_path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_SPECIAL:
 				break;
 			case YAFFS_OBJECT_TYPE_UNKNOWN:
 				break;
+		}
+	} else {
+		fprintf(stderr, "Warning: Invalid header at chunk #%d, skipping...\n",
+		        chunk_no);
+		if (++warn_count >= MAX_WARN) {
+			fprintf(stderr, "Giving up\n");
+			exit(1);
 		}
 	}
 	return 0;
@@ -88,6 +114,8 @@ int read_chunk(void)
 {
 	ssize_t s;
 	int ret = -1;
+
+	chunk_no++;
 	memset(chunk_data, 0xff, sizeof(chunk_data));
 	s = read(img_file, data, CHUNK_SIZE + SPARE_SIZE);
 	if (s == -1) {
