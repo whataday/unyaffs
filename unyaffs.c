@@ -40,22 +40,21 @@ int process_chunk(void)
 	yaffs_PackedTags2 *pt = (yaffs_PackedTags2 *)spare_data;
 	if (pt->t.byteCount == 0xffff)  {	//a new object 
 
-		yaffs_ObjectHeader *oh = (yaffs_ObjectHeader *)malloc(sizeof(yaffs_ObjectHeader));
-		memcpy(oh, chunk_data, sizeof(yaffs_ObjectHeader));
+		yaffs_ObjectHeader oh = *(yaffs_ObjectHeader *)chunk_data;
 
-		full_path_name = (char *)malloc(strlen(oh->name) + strlen(obj_list[oh->parentObjectId]) + 2);
+		full_path_name = (char *)malloc(strlen(oh.name) + strlen(obj_list[oh.parentObjectId]) + 2);
 		if (full_path_name == NULL) {
 			perror("malloc full path name\n");
 		}
-		strcpy(full_path_name, obj_list[oh->parentObjectId]);
+		strcpy(full_path_name, obj_list[oh.parentObjectId]);
 		strcat(full_path_name, "/");
-		strcat(full_path_name, oh->name);
+		strcat(full_path_name, oh.name);
 		obj_list[pt->t.objectId] = full_path_name;
 
-		switch(oh->type) {
+		switch(oh.type) {
 			case YAFFS_OBJECT_TYPE_FILE:
-				remain = oh->fileSize;
-				out_file = creat(full_path_name, oh->yst_mode);
+				remain = oh.fileSize;
+				out_file = creat(full_path_name, oh.yst_mode);
 				while(remain > 0) {
 					if (read_chunk())
 						return -1;
@@ -67,13 +66,13 @@ int process_chunk(void)
 				close(out_file);
 				break;
 			case YAFFS_OBJECT_TYPE_SYMLINK:
-				symlink(oh->alias, full_path_name);
+				symlink(oh.alias, full_path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_DIRECTORY:
 				mkdir(full_path_name, 0777);
 				break;
 			case YAFFS_OBJECT_TYPE_HARDLINK:
-				link(obj_list[oh->equivalentObjectId], full_path_name);
+				link(obj_list[oh.equivalentObjectId], full_path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_SPECIAL:
 				break;
