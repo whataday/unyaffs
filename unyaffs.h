@@ -8,6 +8,7 @@
 
 #define YAFFS_MAX_NAME_LENGTH       255
 #define YAFFS_MAX_ALIAS_LENGTH      159
+
 /* Definition of types */
 typedef unsigned char __u8;
 typedef unsigned short __u16;
@@ -32,13 +33,6 @@ typedef struct {
 } yaffs_PackedTags2;
 
 typedef enum {
-    YAFFS_ECC_RESULT_UNKNOWN,
-    YAFFS_ECC_RESULT_NO_ERROR,
-    YAFFS_ECC_RESULT_FIXED,
-    YAFFS_ECC_RESULT_UNFIXED
-} yaffs_ECCResult;
-
-typedef enum {
     YAFFS_OBJECT_TYPE_UNKNOWN,
     YAFFS_OBJECT_TYPE_FILE,
     YAFFS_OBJECT_TYPE_SYMLINK,
@@ -47,41 +41,6 @@ typedef enum {
     YAFFS_OBJECT_TYPE_SPECIAL
 } yaffs_ObjectType;
 
-
-typedef struct {
-
-    unsigned validMarker0;
-    unsigned chunkUsed; /*  Status of the chunk: used or unused */
-    unsigned objectId;  /* If 0 then this is not part of an object (unused) */
-    unsigned chunkId;   /* If 0 then this is a header, else a data chunk */
-    unsigned byteCount; /* Only valid for data chunks */
-
-    /* The following stuff only has meaning when we read */
-    yaffs_ECCResult eccResult;
-    unsigned blockBad;
-
-    /* YAFFS 1 stuff */
-    unsigned chunkDeleted;  /* The chunk is marked deleted */
-    unsigned serialNumber;  /* Yaffs1 2-bit serial number */
-
-    /* YAFFS2 stuff */
-    unsigned sequenceNumber;    /* The sequence number of this block */
-
-    /* Extra info if this is an object header (YAFFS2 only) */
-
-    unsigned extraHeaderInfoAvailable;  /* There is extra info available if this is not zero */
-    unsigned extraParentObjectId;   /* The parent object */
-    unsigned extraIsShrinkHeader;   /* Is it a shrink header? */
-    unsigned extraShadows;      /* Does this shadow another object? */
-
-    yaffs_ObjectType extraObjectType;   /* What object type? */
-
-    unsigned extraFileLength;       /* Length if it is a file */
-    unsigned extraEquivalentObjectId;   /* Equivalent object Id if it is a hard link */
-
-    unsigned validMarker1;
-
-} yaffs_ExtendedTags;
 
 /* -------------------------- Object structure -------------------------------*/
 /* This is the object structure as stored on NAND */
