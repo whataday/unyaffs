@@ -27,17 +27,26 @@
 
 #include "unyaffs.h"
 
-#define CHUNK_SIZE		 2048
-#define SPARE_SIZE		   64
+#define MAX_CHUNK_SIZE		 8192
+#define MAX_SPARE_SIZE		  256
 #define MAX_OBJECTS		10000
 #define MAX_DIRS		 1000
 #define MAX_WARN		   20
 #define YAFFS_OBJECTID_ROOT	    1
 
+static struct t_layout {
+	int chunk_size;
+	int spare_size;
+} possible_layouts[] =
+	{ { 2048, 64 }, { 4096, 128 }, { 8192, 256 } };
 
-unsigned char data[CHUNK_SIZE + SPARE_SIZE];
+int max_layout = sizeof(possible_layouts) / sizeof(struct t_layout);
+
+unsigned char data[MAX_CHUNK_SIZE + MAX_SPARE_SIZE];
 unsigned char *chunk_data = data;
-unsigned char *spare_data = data + CHUNK_SIZE;
+unsigned char *spare_data = NULL;
+int chunk_size = 2048;
+int spare_size = 64;
 int chunk_no   = 0;
 int warn_count = 0;
 int img_file;
@@ -192,12 +201,12 @@ int read_chunk(void) {
 
 	chunk_no++;
 	memset(chunk_data, 0xff, sizeof(chunk_data));
-	s = read(img_file, data, CHUNK_SIZE + SPARE_SIZE);
+	s = read(img_file, data, chunk_size + spare_size);
 	if (s == -1) {
 		perror("read image file\n");
 	} else if (s == 0) {
 		printf("end of image\n");
-	} else if ((s == (CHUNK_SIZE + SPARE_SIZE))) {
+	} else if ((s == (chunk_size + spare_size))) {
 		ret = 0;
 	} else {
 		fprintf(stderr, "broken image file\n");
@@ -205,16 +214,92 @@ int read_chunk(void) {
 	return ret;
 }
 
-int main(int argc, char **argv) {
-	if (argc != 2) {
-		printf("Usage: unyaffs image_file_name\n");
+void detect_chunk_size(void) {
+	unsigned char buf[MAX_CHUNK_SIZE+MAX_SPARE_SIZE+16];
+	ssize_t  len;
+	int      i;
+
+	memset(buf, 0xff, sizeof(buf));
+	len = read(img_file, buf, sizeof(buf));
+	if (len == -1) {
+		perror("read image file\n");
+	}
+	lseek(img_file, 0, SEEK_SET);
+
+	if (*(unsigned *)&buf[0] != YAFFS_OBJECT_TYPE_DIRECTORY ||
+	    *(unsigned *)&buf[4] != YAFFS_OBJECTID_ROOT) {
+		fprintf(stderr, "Not a yaffs2 image\n");
 		exit(1);
 	}
-	img_file = open(argv[1], O_RDONLY);
+
+	for (i = 0; i < max_layout; i++) {
+		if (*(unsigned *)&buf[possible_layouts[i].chunk_size + 12]
+			== 0xffff &&
+		    *(unsigned *)&buf[possible_layouts[i].chunk_size + 4]
+			== YAFFS_OBJECTID_ROOT &&
+		    *(unsigned *)&buf[possible_layouts[i].chunk_size + possible_layouts[i].spare_size + 4]
+			== YAFFS_OBJECTID_ROOT) break;
+	}
+
+	if (i >= max_layout) {
+		fprintf(stderr, "Can't determine chunk size\n");
+		exit(1);
+	}
+
+	chunk_size = possible_layouts[i].chunk_size;
+	spare_size = possible_layouts[i].spare_size;
+	printf("Header check OK, chunk size = %d, spare size = %d.\n",
+	       chunk_size, spare_size);
+}
+
+void usage(void) {
+	fprintf(stderr, "\
+Usage: unyaffs [-l <layout>] image_file_name\n\
+               layout=0: detect chunk and spare size (default)\n\
+               layout=1: 2K chunk,  64 byte spare size\n\
+               layout=2: 4K chunk, 128 byte spare size\n\
+               layout=3: 8K chunk, 256 byte spare size\n\
+");
+	exit(1);
+}
+
+int main(int argc, char **argv) {
+	int ch;
+	int layout = 0;
+
+	/* handle command line options */
+	while ((ch = getopt(argc, argv, "l:h?")) > 0) {
+		switch (ch) {
+			case 'l':
+				if (optarg[0] < '0' ||
+				    optarg[0] > '0' + max_layout ||
+				    optarg[1] != '\0') usage();
+				layout = optarg[0] - '0';
+				break;
+			case 'h':
+			case '?':
+			default:
+				usage();
+				break;
+    		}
+	}
+
+	/* extract rest of command line parameters */
+	if ((argc - optind) !=  1) usage();
+
+	img_file = open(argv[optind], O_RDONLY);
 	if (img_file == -1) {
 		printf("open image file failed\n");
 		exit(1);
 	}
+
+	if (layout == 0) {
+		detect_chunk_size();
+	} else {
+		chunk_size = possible_layouts[layout-1].chunk_size;
+		spare_size = possible_layouts[layout-1].spare_size;
+	}
+	spare_data = data + chunk_size;
 
 	umask(0);
 
