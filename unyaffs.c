@@ -97,6 +97,8 @@ int process_chunk(void)
 				link(obj_list[oh.equivalentObjectId], full_path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_SPECIAL:
+				mknod(full_path_name, oh.yst_mode, oh.yst_rdev);
+				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_UNKNOWN:
 				break;
