@@ -27,8 +27,8 @@
 
 #include "unyaffs.h"
 
-#define MAX_CHUNK_SIZE		 8192
-#define MAX_SPARE_SIZE		  256
+#define MAX_CHUNK_SIZE		16384
+#define MAX_SPARE_SIZE		  512
 #define MAX_OBJECTS		10000
 #define MAX_DIRS		 1000
 #define MAX_WARN		   20
@@ -38,7 +38,7 @@ static struct t_layout {
 	int chunk_size;
 	int spare_size;
 } possible_layouts[] =
-	{ { 2048, 64 }, { 4096, 128 }, { 8192, 256 } };
+	{ { 2048, 64 }, { 4096, 128 }, { 8192, 256 }, { 16384, 512 } };
 
 int max_layout = sizeof(possible_layouts) / sizeof(struct t_layout);
 
@@ -256,9 +256,10 @@ void usage(void) {
 	fprintf(stderr, "\
 Usage: unyaffs [-l <layout>] image_file_name\n\
                layout=0: detect chunk and spare size (default)\n\
-               layout=1: 2K chunk,  64 byte spare size\n\
-               layout=2: 4K chunk, 128 byte spare size\n\
-               layout=3: 8K chunk, 256 byte spare size\n\
+               layout=1:  2K chunk,  64 byte spare size\n\
+               layout=2:  4K chunk, 128 byte spare size\n\
+               layout=3:  8K chunk, 256 byte spare size\n\
+               layout=4: 16K chunk, 512 byte spare size\n\
 ");
 	exit(1);
 }
