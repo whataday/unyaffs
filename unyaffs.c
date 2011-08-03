@@ -215,7 +215,10 @@ int read_chunk(void) {
 }
 
 void detect_chunk_size(void) {
-	unsigned char buf[MAX_CHUNK_SIZE+MAX_SPARE_SIZE+16];
+	unsigned char buf[MAX_CHUNK_SIZE + MAX_SPARE_SIZE +
+	                  sizeof(yaffs_ObjectHeader)];
+	yaffs_ObjectHeader *oh, *next_oh;
+	yaffs_PackedTags2  *pt;
 	ssize_t  len;
 	int      i;
 
@@ -226,19 +229,24 @@ void detect_chunk_size(void) {
 	}
 	lseek(img_file, 0, SEEK_SET);
 
-	if (*(unsigned *)&buf[0] != YAFFS_OBJECT_TYPE_DIRECTORY ||
-	    *(unsigned *)&buf[4] != YAFFS_OBJECTID_ROOT) {
+	oh = (yaffs_ObjectHeader *)buf;
+	if (oh->type           != YAFFS_OBJECT_TYPE_DIRECTORY ||
+	    oh->parentObjectId != YAFFS_OBJECTID_ROOT) {
 		fprintf(stderr, "Not a yaffs2 image\n");
 		exit(1);
 	}
 
 	for (i = 0; i < max_layout; i++) {
-		if (*(unsigned *)&buf[possible_layouts[i].chunk_size + 12]
-			== 0xffff &&
-		    *(unsigned *)&buf[possible_layouts[i].chunk_size + 4]
-			== YAFFS_OBJECTID_ROOT &&
-		    *(unsigned *)&buf[possible_layouts[i].chunk_size + possible_layouts[i].spare_size + 4]
-			== YAFFS_OBJECTID_ROOT) break;
+ 		pt      = (yaffs_PackedTags2 *)
+			(buf + possible_layouts[i].chunk_size);
+		next_oh = (yaffs_ObjectHeader *)
+			(buf + possible_layouts[i].chunk_size +
+			       possible_layouts[i].spare_size);
+
+		if (pt->t.byteCount == 0xffff &&	/* a new object */
+		    pt->t.objectId  == YAFFS_OBJECTID_ROOT &&
+		    next_oh->parentObjectId == YAFFS_OBJECTID_ROOT)
+			break;
 	}
 
 	if (i >= max_layout) {
