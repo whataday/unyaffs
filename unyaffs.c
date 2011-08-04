@@ -19,6 +19,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
+#include <errno.h>
 #ifdef HAS_LUTIMES
 #include <sys/time.h>
 #else
@@ -87,9 +89,25 @@ void set_dirs_utime(void) {
 		          dir_list[i].yst_atime, dir_list[i].yst_mtime);
 }
 
+/* error reporting function, similar to GNU error() */
+static void prt_err(int status, int errnum, const char *format, ...) {
+	va_list varg;
+
+	va_start(varg, format);
+	fflush(stdout);
+	vfprintf(stderr, format, varg);
+	if (errnum != 0)
+		fprintf(stderr, ": %s", strerror(errnum));
+	fprintf(stderr, "\n");
+	va_end(varg);
+
+	if (status != 0)
+		exit(status);
+}
+
 int read_chunk(void);
 
-int process_chunk(void) {
+void process_chunk(void) {
 	int out_file, remain, s;
 	char *full_path_name;
 
@@ -97,22 +115,16 @@ int process_chunk(void) {
 	if (pt->t.byteCount == 0xffff) {	/* a new object */
 		yaffs_ObjectHeader oh = *(yaffs_ObjectHeader *)chunk_data;
 
-		if (pt->t.objectId >= MAX_OBJECTS) {
-			fprintf(stderr, "ObjectId %u (%s) out of range.\n",
+		if (pt->t.objectId >= MAX_OBJECTS)
+			prt_err(1, 0, "ObjectId %u (%s) out of range.",
 			        pt->t.objectId, oh.name);
-			exit(1);
-		}
-		if (oh.parentObjectId >= MAX_OBJECTS || obj_list[oh.parentObjectId] == NULL) {
-			fprintf(stderr, "Invalid parentObjectId %u in object %u (%s)\n",
+		if (oh.parentObjectId >= MAX_OBJECTS || obj_list[oh.parentObjectId] == NULL)
+			prt_err(1, 0, "Invalid parentObjectId %u in object %u (%s)",
 			        oh.parentObjectId, pt->t.objectId, oh.name);
-			exit(1);
-		}
 
 		full_path_name = (char *)malloc(strlen(oh.name) + strlen(obj_list[oh.parentObjectId]) + 2);
-		if (full_path_name == NULL) {
-			fprintf(stderr, "malloc full path name.\n");
-			exit(1);
-		}
+		if (full_path_name == NULL)
+			prt_err(1, 0, "Malloc full path name failed.");
 		strcpy(full_path_name, obj_list[oh.parentObjectId]);
 		if (oh.name[0] != '\0') {
 			strcat(full_path_name, "/");
@@ -125,11 +137,11 @@ int process_chunk(void) {
 				remain = oh.fileSize;
 				out_file = creat(full_path_name, oh.yst_mode);
 				while(remain > 0) {
-					if (read_chunk())
-						return -1;
+					if (!read_chunk())
+						prt_err(1, 0, "Broken image file");
 					s = (remain < pt->t.byteCount) ? remain : pt->t.byteCount;
-					if (write(out_file, chunk_data, s) == -1)
-						return -1;
+					if (write(out_file, chunk_data, s) < 0)
+						return;
 					remain -= s;
 				}
 				close(out_file);
@@ -144,11 +156,9 @@ int process_chunk(void) {
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_HARDLINK:
-				if (oh.equivalentObjectId >= MAX_OBJECTS || obj_list[oh.equivalentObjectId] == NULL) {
-					fprintf(stderr, "Invalid equivalentObjectId %u in object %u (%s)\n",
+				if (oh.equivalentObjectId >= MAX_OBJECTS || obj_list[oh.equivalentObjectId] == NULL)
+					prt_err(1, 0, "Invalid equivalentObjectId %u in object %u (%s)",
 					        oh.equivalentObjectId, pt->t.objectId, oh.name);
-					exit(1);
-				}
 				link(obj_list[oh.equivalentObjectId], full_path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_SPECIAL:
@@ -170,11 +180,8 @@ int process_chunk(void) {
 				          oh.yst_atime, oh.yst_mtime);
 				break;
 			case YAFFS_OBJECT_TYPE_DIRECTORY:
-				if (dir_count >= MAX_DIRS) {
-					fprintf(stderr, "Too many directories (more than %d).\n",
-					        MAX_DIRS);
-					exit(1);
-				}
+				if (dir_count >= MAX_DIRS)
+					prt_err(1, 0, "Too many directories (more than %d).", MAX_DIRS);
 				dir_list[dir_count].path_name = full_path_name;
 				dir_list[dir_count].yst_atime = oh.yst_atime;
 				dir_list[dir_count].yst_mtime = oh.yst_mtime;
@@ -184,34 +191,26 @@ int process_chunk(void) {
 				break;
 		}
 	} else {
-		fprintf(stderr, "Warning: Invalid header at chunk #%d, skipping...\n",
+		prt_err(0, 0, "Warning: Invalid header at chunk #%d, skipping...",
 		        chunk_no);
-		if (++warn_count >= MAX_WARN) {
-			fprintf(stderr, "Giving up\n");
-			exit(1);
-		}
+		if (++warn_count >= MAX_WARN)
+			prt_err(1, 0, "Giving up");
 	}
-	return 0;
 }
 
 
 int read_chunk(void) {
 	ssize_t s;
-	int ret = -1;
 
 	chunk_no++;
 	memset(chunk_data, 0xff, sizeof(chunk_data));
 	s = read(img_file, data, chunk_size + spare_size);
-	if (s == -1) {
-		perror("read image file\n");
-	} else if (s == 0) {
-		printf("end of image\n");
-	} else if ((s == (chunk_size + spare_size))) {
-		ret = 0;
-	} else {
-		fprintf(stderr, "broken image file\n");
+	if (s < 0) {
+		prt_err(1, errno, "Read image file");
+	} else if (s != 0 && s != (chunk_size + spare_size)) {
+		prt_err(1, 0, "Broken image file");
 	}
-	return ret;
+	return s != 0;
 }
 
 void detect_chunk_size(void) {
@@ -224,17 +223,16 @@ void detect_chunk_size(void) {
 
 	memset(buf, 0xff, sizeof(buf));
 	len = read(img_file, buf, sizeof(buf));
-	if (len == -1) {
-		perror("read image file\n");
-	}
+	if (len < 0)
+		prt_err(1, errno, "Read image file");
+	else if (len != sizeof(buf))
+		prt_err(1, 0, "Broken image file");
 	lseek(img_file, 0, SEEK_SET);
 
 	oh = (yaffs_ObjectHeader *)buf;
 	if (oh->type           != YAFFS_OBJECT_TYPE_DIRECTORY ||
-	    oh->parentObjectId != YAFFS_OBJECTID_ROOT) {
-		fprintf(stderr, "Not a yaffs2 image\n");
-		exit(1);
-	}
+	    oh->parentObjectId != YAFFS_OBJECTID_ROOT)
+		prt_err(1, 0, "Not a yaffs2 image");
 
 	for (i = 0; i < max_layout; i++) {
  		pt      = (yaffs_PackedTags2 *)
@@ -249,10 +247,8 @@ void detect_chunk_size(void) {
 			break;
 	}
 
-	if (i >= max_layout) {
-		fprintf(stderr, "Can't determine chunk size\n");
-		exit(1);
-	}
+	if (i >= max_layout)
+		prt_err(1, 0, "Can't determine chunk size");
 
 	chunk_size = possible_layouts[i].chunk_size;
 	spare_size = possible_layouts[i].spare_size;
@@ -297,10 +293,8 @@ int main(int argc, char **argv) {
 	if ((argc - optind) !=  1) usage();
 
 	img_file = open(argv[optind], O_RDONLY);
-	if (img_file == -1) {
-		printf("open image file failed\n");
-		exit(1);
-	}
+	if (img_file < 0)
+		prt_err(1, errno, "Open image file failed");
 
 	if (layout == 0) {
 		detect_chunk_size();
@@ -313,9 +307,7 @@ int main(int argc, char **argv) {
 	umask(0);
 
 	obj_list[YAFFS_OBJECTID_ROOT] = ".";
-	while(1) {
-		if (read_chunk() == -1)
-			break;
+	while (read_chunk()) {
 		process_chunk();
 	}
 	set_dirs_utime();
