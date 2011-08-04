@@ -125,10 +125,15 @@ void process_chunk(void) {
 		full_path_name = (char *)malloc(strlen(oh.name) + strlen(obj_list[oh.parentObjectId]) + 2);
 		if (full_path_name == NULL)
 			prt_err(1, 0, "Malloc full path name failed.");
+
 		strcpy(full_path_name, obj_list[oh.parentObjectId]);
 		if (oh.name[0] != '\0') {
-			strcat(full_path_name, "/");
-			strcat(full_path_name, oh.name);
+			if (strcmp(full_path_name, ".") == 0) {
+				strcpy(full_path_name, oh.name);
+			} else {
+				strcat(full_path_name, "/");
+				strcat(full_path_name, oh.name);
+			}
  		}
 		obj_list[pt->t.objectId] = full_path_name;
 
@@ -136,33 +141,41 @@ void process_chunk(void) {
 			case YAFFS_OBJECT_TYPE_FILE:
 				remain = oh.fileSize;
 				out_file = creat(full_path_name, oh.yst_mode);
+				if (out_file < 0)
+					prt_err(1, errno, "Can't create file %s", full_path_name);
 				while(remain > 0) {
 					if (!read_chunk())
 						prt_err(1, 0, "Broken image file");
 					s = (remain < pt->t.byteCount) ? remain : pt->t.byteCount;
 					if (write(out_file, chunk_data, s) < 0)
-						return;
+						prt_err(1, errno, "Can't write to %s", full_path_name);
 					remain -= s;
 				}
 				close(out_file);
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_SYMLINK:
-				symlink(oh.alias, full_path_name);
+				if (symlink(oh.alias, full_path_name) < 0)
+					prt_err(1, errno, "Can't create symlink %s", full_path_name);
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_DIRECTORY:
-				mkdir(full_path_name, oh.yst_mode);
+				if (mkdir(full_path_name, oh.yst_mode) < 0) {
+					if (pt->t.objectId != YAFFS_OBJECTID_ROOT || errno != EEXIST)
+						prt_err(1, errno, "Can't create directory %s", full_path_name);
+				}
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_HARDLINK:
 				if (oh.equivalentObjectId >= MAX_OBJECTS || obj_list[oh.equivalentObjectId] == NULL)
 					prt_err(1, 0, "Invalid equivalentObjectId %u in object %u (%s)",
 					        oh.equivalentObjectId, pt->t.objectId, oh.name);
-				link(obj_list[oh.equivalentObjectId], full_path_name);
+				if (link(obj_list[oh.equivalentObjectId], full_path_name) < 0)
+					prt_err(1, errno, "Can't create hardlink %s", full_path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_SPECIAL:
-				mknod(full_path_name, oh.yst_mode, oh.yst_rdev);
+				if (mknod(full_path_name, oh.yst_mode, oh.yst_rdev) < 0)
+					prt_err(1, errno, "Can't create device %s", full_path_name);
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_UNKNOWN:
@@ -227,7 +240,8 @@ void detect_chunk_size(void) {
 		prt_err(1, errno, "Read image file");
 	else if (len != sizeof(buf))
 		prt_err(1, 0, "Broken image file");
-	lseek(img_file, 0, SEEK_SET);
+	if (lseek(img_file, 0, SEEK_SET) < 0)
+		prt_err(1, errno, "Seek to begin of image file");
 
 	oh = (yaffs_ObjectHeader *)buf;
 	if (oh->type           != YAFFS_OBJECT_TYPE_DIRECTORY ||
