@@ -105,6 +105,44 @@ static void prt_err(int status, int errnum, const char *format, ...) {
 		exit(status);
 }
 
+/* read function, which handles partial and interrupted reads */
+ssize_t xread(int fd, void *buf, size_t len) {
+	char *ptr = buf;
+	ssize_t offset, ret;
+
+	offset = 0;
+	while (offset < len) {
+		ret = read(fd, ptr+offset, len-offset);
+		if (ret < 0) {
+			if (errno != EAGAIN && errno != EINTR)
+				return -1;
+		} else if (ret == 0)
+			break;
+		else
+			offset += ret;
+	}
+	return offset;
+}
+
+/* write function, which handles partial and interrupted writes */
+ssize_t xwrite(int fd, void *buf, size_t len) {
+	char *ptr = buf;
+	ssize_t offset, ret;
+
+	offset = 0;
+	while (offset < len) {
+		ret = write(fd, ptr+offset, len-offset);
+		if (ret < 0) {
+			if (errno != EAGAIN && errno != EINTR)
+				return -1;
+		} else if (ret == 0)
+			break;
+		else
+			offset += ret;
+	}
+	return offset;
+}
+
 int read_chunk(void);
 
 void process_chunk(void) {
@@ -147,7 +185,7 @@ void process_chunk(void) {
 					if (!read_chunk())
 						prt_err(1, 0, "Broken image file");
 					s = (remain < pt->t.byteCount) ? remain : pt->t.byteCount;
-					if (write(out_file, chunk_data, s) < 0)
+					if (xwrite(out_file, chunk_data, s) < 0)
 						prt_err(1, errno, "Can't write to %s", full_path_name);
 					remain -= s;
 				}
@@ -217,7 +255,7 @@ int read_chunk(void) {
 
 	chunk_no++;
 	memset(chunk_data, 0xff, sizeof(chunk_data));
-	s = read(img_file, data, chunk_size + spare_size);
+	s = xread(img_file, data, chunk_size + spare_size);
 	if (s < 0) {
 		prt_err(1, errno, "Read image file");
 	} else if (s != 0 && s != (chunk_size + spare_size)) {
@@ -235,7 +273,7 @@ void detect_chunk_size(void) {
 	int      i;
 
 	memset(buf, 0xff, sizeof(buf));
-	len = read(img_file, buf, sizeof(buf));
+	len = xread(img_file, buf, sizeof(buf));
 	if (len < 0)
 		prt_err(1, errno, "Read image file");
 	else if (len != sizeof(buf))
