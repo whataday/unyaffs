@@ -241,7 +241,7 @@ void process_chunk(void) {
 			default:
 				break;
 		}
-	} else {
+	} else if (pt->t.byteCount != 0xffffffff) {	/* not empty */
 		prt_err(0, 0, "Warning: Invalid header at chunk #%d, skipping...",
 		        chunk_no);
 		if (++warn_count >= MAX_WARN)
