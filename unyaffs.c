@@ -265,10 +265,9 @@ int read_chunk(void) {
 }
 
 void detect_chunk_size(void) {
-	unsigned char buf[MAX_CHUNK_SIZE + MAX_SPARE_SIZE +
-	                  sizeof(yaffs_ObjectHeader)];
-	yaffs_ObjectHeader *oh, *next_oh;
-	yaffs_PackedTags2  *pt;
+	unsigned char buf[2*(MAX_CHUNK_SIZE + MAX_SPARE_SIZE)];
+	yaffs_ObjectHeader *oh;
+	yaffs_PackedTags2  *pt, *pt2;
 	ssize_t  len;
 	int      i;
 
@@ -276,26 +275,28 @@ void detect_chunk_size(void) {
 	len = xread(img_file, buf, sizeof(buf));
 	if (len < 0)
 		prt_err(1, errno, "Read image file");
-	else if (len != sizeof(buf))
-		prt_err(1, 0, "Broken image file");
 	if (lseek(img_file, 0, SEEK_SET) < 0)
 		prt_err(1, errno, "Seek to begin of image file");
 
 	oh = (yaffs_ObjectHeader *)buf;
-	if (oh->type           != YAFFS_OBJECT_TYPE_DIRECTORY ||
-	    oh->parentObjectId != YAFFS_OBJECTID_ROOT)
+	if (oh->parentObjectId != YAFFS_OBJECTID_ROOT ||
+	    (oh->type          != YAFFS_OBJECT_TYPE_FILE &&
+	     oh->type          != YAFFS_OBJECT_TYPE_DIRECTORY &&
+	     oh->type          != YAFFS_OBJECT_TYPE_SYMLINK &&
+	     oh->type          != YAFFS_OBJECT_TYPE_HARDLINK &&
+	     oh->type          != YAFFS_OBJECT_TYPE_SPECIAL))
 		prt_err(1, 0, "Not a yaffs2 image");
 
 	for (i = 0; i < max_layout; i++) {
- 		pt      = (yaffs_PackedTags2 *)
-			(buf + possible_layouts[i].chunk_size);
-		next_oh = (yaffs_ObjectHeader *)
-			(buf + possible_layouts[i].chunk_size +
-			       possible_layouts[i].spare_size);
+ 		pt  = (yaffs_PackedTags2 *)
+		      (buf + possible_layouts[i].chunk_size);
+		pt2 = (yaffs_PackedTags2 *)
+		      (buf + 2 * possible_layouts[i].chunk_size +
+		       possible_layouts[i].spare_size);
 
-		if (pt->t.byteCount == 0xffff &&	/* a new object */
-		    pt->t.objectId  == YAFFS_OBJECTID_ROOT &&
-		    next_oh->parentObjectId == YAFFS_OBJECTID_ROOT)
+		if (pt->t.byteCount == 0xffff && pt->t.chunkId == 0 &&
+		    ((pt2->t.byteCount == 0xffff && pt2->t.chunkId == 0) ||
+		     (pt2->t.objectId == pt->t.objectId && pt2->t.chunkId == 1)))
 			break;
 	}
 
