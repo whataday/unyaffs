@@ -212,8 +212,12 @@ void process_chunk(void) {
 					prt_err(1, errno, "Can't create hardlink %s", full_path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_SPECIAL:
-				if (mknod(full_path_name, oh.yst_mode, oh.yst_rdev) < 0)
-					prt_err(1, errno, "Can't create device %s", full_path_name);
+				if (mknod(full_path_name, oh.yst_mode, oh.yst_rdev) < 0) {
+					if (errno == EPERM || errno == EINVAL)
+						prt_err(0, errno, "Warning: Can't create device %s", full_path_name);
+					else
+						prt_err(1, errno, "Can't create device %s", full_path_name);
+				}
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_UNKNOWN:
