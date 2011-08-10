@@ -42,6 +42,50 @@ Compiling
 Usage
 -----
 
-  "unyaffs <yaffs2_image_file_name>" extracts all the files from the image
-  file into the current directory.
+  unyaffs extracts all the files from a YAFFS2 image file into the current
+  directory.
 
+  unyaffs [-l <layout>] [-t] [-v] <image_file_name>
+      -l <layout>      set flash memory layout
+          layout=0: detect chunk and spare size (default)
+          layout=1:  2K chunk,  64 byte spare size
+          layout=2:  4K chunk, 128 byte spare size
+          layout=3:  8K chunk, 256 byte spare size
+          layout=4: 16K chunk, 512 byte spare size
+      -t               list image contents
+      -v               verbose output
+
+  In most cases the flash memory layout is detected automatically.
+  If the detection doesn't work properly, the layout can be set with
+  option -l.
+
+  Option -t lists all the files in the image without extracting them.
+  Option -v generates a 'ls -l' like file listing. When combined with
+  -t it shows the contents of the image file, otherwise it lists the
+  extracted files.
+
+  unyaffs extracts all file types (regular files, directories, soft links,
+  hard links and special files). The permissions and modification dates
+  are restored. When run as root, the ownership is restored as well.
+
+  Please be careful extracting images as root. It might be possible,
+  that important system files get overwritten. The use of chroot
+  or fakeroot can guard against these problems.
+
+Limitations
+-----------
+
+  Block and character devices can only be restored as root. In some
+  operating systems (e.g. Mac OS X) sockets can't be restored.
+
+  The use of special files (block devices, character devices, pipes,
+  sockets) is not portable across different unix flavors. E.g. device
+  files created on linux will get a strange major and minor device ids,
+  when restored under BSD.
+
+  When it's necessary to deal with special files, please use the same
+  OS as used in the system the image is build for. In most cases that's
+  linux.
+
+  The maximum number of files and directories is hard coded in unyaffs.c.
+  Change MAX_OBJECTS and MAX_DIRS, if the current values are too small.
