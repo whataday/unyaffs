@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <time.h>
 #include <errno.h>
 #ifdef HAS_LUTIMES
 #include <sys/time.h>
@@ -52,6 +53,8 @@ int spare_size = 64;
 int chunk_no   = 0;
 int warn_count = 0;
 int img_file;
+int opt_list;
+int opt_verbose;
 
 char *obj_list[MAX_OBJECTS];
 
@@ -143,6 +146,79 @@ ssize_t xwrite(int fd, void *buf, size_t len) {
 	return offset;
 }
 
+static void prt_node(char *name, yaffs_ObjectHeader *oh) {
+	struct tm tm;
+	time_t mtime;
+	mode_t mode;
+	int  mask;
+	int  idx;
+	char type;
+	char fsize[16];
+	char perm[10];
+
+	/* get file type */
+	strcpy(fsize, "0");
+	mtime = oh->yst_mtime;
+	mode  = oh->yst_mode;
+	switch(oh->type) {
+		case YAFFS_OBJECT_TYPE_FILE:		type = '-';
+			snprintf(fsize, sizeof(fsize), "%d", oh->fileSize);
+			break;
+		case YAFFS_OBJECT_TYPE_DIRECTORY:	type = 'd'; break;
+		case YAFFS_OBJECT_TYPE_SYMLINK:		type = 'l'; break;
+		case YAFFS_OBJECT_TYPE_HARDLINK:	type = 'h';
+			mtime = 0; mode = 0777;
+			break;
+		case YAFFS_OBJECT_TYPE_SPECIAL:
+			switch (oh->yst_mode & S_IFMT) {
+				case S_IFBLK:		type = 'b';
+					snprintf(fsize, sizeof(fsize), "%d,%4d",
+					         major(oh->yst_rdev),
+					         minor(oh->yst_rdev));
+					break;
+				case S_IFCHR:		type = 'c';
+					snprintf(fsize, sizeof(fsize), "%d,%4d",
+					         major(oh->yst_rdev),
+					         minor(oh->yst_rdev));
+					break;
+				case S_IFIFO:		type = 'p'; break;
+				case S_IFSOCK:		type = 's'; break;
+				default:		type = '?'; break;
+			}
+			break;
+		default:				type = '?'; break;
+	}
+
+	/* get file permissions */
+	strcpy(perm, "rwxrwxrwx");
+	for (idx = 8, mask = 1; idx >= 0; idx--, mask<<=1) {
+		if ((mode & mask) == 0)
+			perm[idx] = '-';
+	}
+	if (mode & S_ISUID) perm[2] = 's';
+	if (mode & S_ISGID) perm[5] = 's';
+	if (mode & S_ISVTX) perm[8] = 't';
+
+	/* print file infos */
+	localtime_r(&mtime, &tm);
+	printf("%c%s %8s %4d-%02d-%02d %02d:%02d %s",
+	       type, perm, fsize,
+	       tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+	       tm.tm_hour, tm.tm_min, name);
+
+	/* link destination */
+	if (oh->type == YAFFS_OBJECT_TYPE_HARDLINK) {
+		if (oh->equivalentObjectId >= MAX_OBJECTS ||
+		    obj_list[oh->equivalentObjectId] == NULL)
+			printf(" -> !!! Invalid !!!");
+		else
+			printf(" -> /%s", obj_list[oh->equivalentObjectId]);
+	} else if (oh->type == YAFFS_OBJECT_TYPE_SYMLINK) {
+		printf(" -> %s", oh->alias);
+	}
+	printf("\n");
+}
+
 int read_chunk(void);
 
 void process_chunk(void) {
@@ -174,6 +250,23 @@ void process_chunk(void) {
 			}
  		}
 		obj_list[pt->t.objectId] = full_path_name;
+
+		/* listing */
+		if (opt_verbose)
+			prt_node(full_path_name, &oh);
+		else if (opt_list)
+			printf("%s\n", full_path_name);
+		if (opt_list) {
+			if (oh.type == YAFFS_OBJECT_TYPE_FILE) {
+				remain = oh.fileSize;
+				while(remain > 0) {
+					if (!read_chunk())
+						prt_err(1, 0, "Broken image file");
+					remain -= pt->t.byteCount;
+				}
+			}
+			return;
+		}
 
 		switch(oh.type) {
 			case YAFFS_OBJECT_TYPE_FILE:
@@ -309,18 +402,23 @@ void detect_chunk_size(void) {
 
 	chunk_size = possible_layouts[i].chunk_size;
 	spare_size = possible_layouts[i].spare_size;
-	printf("Header check OK, chunk size = %d, spare size = %d.\n",
-	       chunk_size, spare_size);
+	if (opt_verbose)
+		fprintf(stderr,
+		        "Header check OK, chunk size = %d, spare size = %d.\n",
+		        chunk_size, spare_size);
 }
 
 void usage(void) {
 	fprintf(stderr, "\
-Usage: unyaffs [-l <layout>] image_file_name\n\
-               layout=0: detect chunk and spare size (default)\n\
-               layout=1:  2K chunk,  64 byte spare size\n\
-               layout=2:  4K chunk, 128 byte spare size\n\
-               layout=3:  8K chunk, 256 byte spare size\n\
-               layout=4: 16K chunk, 512 byte spare size\n\
+Usage: unyaffs [-l <layout>] [-t] [-v] <image_file_name>\n\
+    -l <layout>      set flash memory layout\n\
+        layout=0: detect chunk and spare size (default)\n\
+        layout=1:  2K chunk,  64 byte spare size\n\
+        layout=2:  4K chunk, 128 byte spare size\n\
+        layout=3:  8K chunk, 256 byte spare size\n\
+        layout=4: 16K chunk, 512 byte spare size\n\
+    -t               list image contents\n\
+    -v               verbose output\n\
 ");
 	exit(1);
 }
@@ -330,13 +428,21 @@ int main(int argc, char **argv) {
 	int layout = 0;
 
 	/* handle command line options */
-	while ((ch = getopt(argc, argv, "l:h?")) > 0) {
+	opt_list = 0;
+	opt_verbose = 0;
+	while ((ch = getopt(argc, argv, "l:tvh?")) > 0) {
 		switch (ch) {
 			case 'l':
 				if (optarg[0] < '0' ||
 				    optarg[0] > '0' + max_layout ||
 				    optarg[1] != '\0') usage();
 				layout = optarg[0] - '0';
+				break;
+			case 't':
+				opt_list = 1;
+				break;
+			case 'v':
+				opt_verbose = 1;
 				break;
 			case 'h':
 			case '?':
