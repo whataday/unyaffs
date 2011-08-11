@@ -80,7 +80,7 @@ Limitations
 
   The use of special files (block devices, character devices, pipes,
   sockets) is not portable across different unix flavors. E.g. device
-  files created on linux will get a strange major and minor device ids,
+  files created on linux will get a strange major and minor device id,
   when restored under BSD.
 
   When it's necessary to deal with special files, please use the same
@@ -89,3 +89,24 @@ Limitations
 
   The maximum number of files and directories is hard coded in unyaffs.c.
   Change MAX_OBJECTS and MAX_DIRS, if the current values are too small.
+
+Windows
+-------
+
+  The difference of the unix and the windows file system are big enough
+  to make a windows port of unyaffs a complicated task. But with cygwin
+  (http://www.cygwin.com/) a unix compatibility layer for windows is
+  available. The unmodified source compiles and runs nicely within cygwin.
+
+  The main differences to a pure unix environment:
+  - Unix functionality only within cygwin environment, native windows
+    programs won't see the more advanced features.
+  - Permissions and file dates/time are correctly restored
+  - Owner/group are not fully restored, only user/groups available in windows
+  - Hard and soft links are correctly restored
+  - Device files have different ids as in linux
+  - Sockets are not restored
+
+  For analysis of a firmware image, unyaffs within cygwin is a nice tool,
+  but because of the restricted user/group functionality rebuilding a
+  modified image can't be recommended.
