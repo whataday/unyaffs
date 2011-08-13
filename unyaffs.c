@@ -239,20 +239,22 @@ void process_chunk(void) {
 			prt_err(1, 0, "Invalid parentObjectId %u in object %u (%s)",
 			        oh.parentObjectId, pt->t.objectId, oh.name);
 
-		full_path_name = (char *)malloc(strlen(oh.name) + strlen(obj_list[oh.parentObjectId]) + 2);
-		if (full_path_name == NULL)
-			prt_err(1, 0, "Malloc full path name failed.");
+		if (pt->t.objectId == YAFFS_OBJECTID_ROOT) {
+			full_path_name = obj_list[YAFFS_OBJECTID_ROOT];
+		} else {
+			full_path_name = (char *)malloc(strlen(oh.name) + strlen(obj_list[oh.parentObjectId]) + 2);
+			if (full_path_name == NULL)
+				prt_err(1, 0, "Malloc full path name failed.");
 
-		strcpy(full_path_name, obj_list[oh.parentObjectId]);
-		if (oh.name[0] != '\0') {
-			if (strcmp(full_path_name, ".") == 0) {
+			if (oh.parentObjectId == YAFFS_OBJECTID_ROOT) {
 				strcpy(full_path_name, oh.name);
 			} else {
+				strcpy(full_path_name, obj_list[oh.parentObjectId]);
 				strcat(full_path_name, "/");
 				strcat(full_path_name, oh.name);
 			}
- 		}
-		obj_list[pt->t.objectId] = full_path_name;
+			obj_list[pt->t.objectId] = full_path_name;
+		}
 
 		/* listing */
 		if (opt_verbose)
@@ -297,12 +299,12 @@ void process_chunk(void) {
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_DIRECTORY:
-				if (mkdir(full_path_name, oh.yst_mode & STD_PERMS) < 0) {
-					if (pt->t.objectId != YAFFS_OBJECTID_ROOT || errno != EEXIST)
+				if (pt->t.objectId != YAFFS_OBJECTID_ROOT &&
+				    mkdir(full_path_name, oh.yst_mode & STD_PERMS) < 0)
 						prt_err(1, errno, "Can't create directory %s", full_path_name);
-				}
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
-				if ((oh.yst_mode & EXTRA_PERMS) != 0 &&
+				if ((pt->t.objectId == YAFFS_OBJECTID_ROOT ||
+				     (oh.yst_mode & EXTRA_PERMS) != 0) &&
 				    chmod(full_path_name, oh.yst_mode) < 0)
 					prt_err(0, errno, "Warning: Can't chmod %s", full_path_name);
 				break;
