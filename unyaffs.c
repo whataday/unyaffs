@@ -37,6 +37,9 @@
 #define MAX_WARN		   20
 #define YAFFS_OBJECTID_ROOT	    1
 
+#define STD_PERMS		(S_IRWXU|S_IRWXG|S_IRWXO)
+#define EXTRA_PERMS		(S_ISUID|S_ISGID|S_ISVTX)
+
 static struct t_layout {
 	int chunk_size;
 	int spare_size;
@@ -167,7 +170,7 @@ static void prt_node(char *name, yaffs_ObjectHeader *oh) {
 		case YAFFS_OBJECT_TYPE_DIRECTORY:	type = 'd'; break;
 		case YAFFS_OBJECT_TYPE_SYMLINK:		type = 'l'; break;
 		case YAFFS_OBJECT_TYPE_HARDLINK:	type = 'h';
-			mtime = 0; mode = 0777;
+			mtime = 0; mode = STD_PERMS;
 			break;
 		case YAFFS_OBJECT_TYPE_SPECIAL:
 			switch (oh->yst_mode & S_IFMT) {
@@ -195,9 +198,9 @@ static void prt_node(char *name, yaffs_ObjectHeader *oh) {
 		if ((mode & mask) == 0)
 			perm[idx] = '-';
 	}
-	if (mode & S_ISUID) perm[2] = 's';
-	if (mode & S_ISGID) perm[5] = 's';
-	if (mode & S_ISVTX) perm[8] = 't';
+	if (mode & S_ISUID) perm[2] = perm[2] == '-' ? 'S' : 's';
+	if (mode & S_ISGID) perm[5] = perm[5] == '-' ? 'S' : 's';
+	if (mode & S_ISVTX) perm[8] = perm[8] == '-' ? 'T' : 't';
 
 	/* print file infos */
 	localtime_r(&mtime, &tm);
@@ -271,7 +274,7 @@ void process_chunk(void) {
 		switch(oh.type) {
 			case YAFFS_OBJECT_TYPE_FILE:
 				remain = oh.fileSize;
-				out_file = creat(full_path_name, oh.yst_mode);
+				out_file = creat(full_path_name, oh.yst_mode & STD_PERMS);
 				if (out_file < 0)
 					prt_err(1, errno, "Can't create file %s", full_path_name);
 				while(remain > 0) {
@@ -284,6 +287,9 @@ void process_chunk(void) {
 				}
 				close(out_file);
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
+				if ((oh.yst_mode & EXTRA_PERMS) != 0 &&
+				    chmod(full_path_name, oh.yst_mode) < 0)
+					prt_err(0, errno, "Warning: Can't chmod %s", full_path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_SYMLINK:
 				if (symlink(oh.alias, full_path_name) < 0)
@@ -291,11 +297,14 @@ void process_chunk(void) {
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_DIRECTORY:
-				if (mkdir(full_path_name, oh.yst_mode) < 0) {
+				if (mkdir(full_path_name, oh.yst_mode & STD_PERMS) < 0) {
 					if (pt->t.objectId != YAFFS_OBJECTID_ROOT || errno != EEXIST)
 						prt_err(1, errno, "Can't create directory %s", full_path_name);
 				}
 				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
+				if ((oh.yst_mode & EXTRA_PERMS) != 0 &&
+				    chmod(full_path_name, oh.yst_mode) < 0)
+					prt_err(0, errno, "Warning: Can't chmod %s", full_path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_HARDLINK:
 				if (oh.equivalentObjectId >= MAX_OBJECTS || obj_list[oh.equivalentObjectId] == NULL)
