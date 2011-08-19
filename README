@@ -59,10 +59,10 @@ Usage
   If the detection doesn't work properly, the layout can be set with
   option -l.
 
-  Option -t lists all the files in the image without extracting them.
-  Option -v generates a 'ls -l' like file listing. When combined with
-  -t it shows the contents of the image file, otherwise it lists the
-  extracted files.
+  Option -t lists all the file names in the image without extracting them.
+  Option -v generates a 'ls -l' like listing of the extracted files.
+  When combined with -t it generates an extended file listing, nothing
+  is extracted.
 
   unyaffs extracts all file types (regular files, directories, soft links,
   hard links and special files). The permissions and modification dates
@@ -87,13 +87,10 @@ Limitations
   OS as used in the system the image is build for. In most cases that's
   linux.
 
-  The maximum number of files and directories is hard coded in unyaffs.c.
-  Change MAX_OBJECTS and MAX_DIRS, if the current values are too small.
-
 Windows
 -------
 
-  The difference of the unix and the windows file system are big enough
+  The differences between the unix and windows file system are big enough
   to make a windows port of unyaffs a complicated task. But with cygwin
   (http://www.cygwin.com/) a unix compatibility layer for windows is
   available. The unmodified source compiles and runs nicely within cygwin.

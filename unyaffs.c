@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <stdarg.h>
 #include <time.h>
 #include <errno.h>
@@ -32,8 +33,7 @@
 
 #define MAX_CHUNK_SIZE		16384
 #define MAX_SPARE_SIZE		  512
-#define MAX_OBJECTS		10000
-#define MAX_DIRS		 1000
+#define HASH_SIZE		 7001
 #define MAX_WARN		   20
 #define YAFFS_OBJECTID_ROOT	    1
 
@@ -59,14 +59,19 @@ int img_file;
 int opt_list;
 int opt_verbose;
 
-char *obj_list[MAX_OBJECTS];
+typedef struct _object {
+	unsigned id;
+	struct _object *next;
+	yaffs_ObjectType type;
+	unsigned prev_dir_id;
+	__u32    atime;
+	__u32    mtime;
+	char     path_name[1];		/* variable length, must be last */
+} object;
 
-struct {
-	char *path_name;
-	__u32 yst_atime;
-	__u32 yst_mtime;
-} dir_list[MAX_DIRS];
-int dir_count = 0;
+object *obj_list[HASH_SIZE];
+
+unsigned last_dir_id;
 
 int set_utime(const char *filename, __u32 yst_atime, __u32 yst_mtime) {
 #ifdef HAS_LUTIMES
@@ -86,13 +91,6 @@ int set_utime(const char *filename, __u32 yst_atime, __u32 yst_mtime) {
 
 	return utime(filename, &ftime);
 #endif
-}
-
-void set_dirs_utime(void) {
-	int i;
-	for (i = dir_count-1; i >= 0; i--)
-		set_utime(dir_list[i].path_name,
-		          dir_list[i].yst_atime, dir_list[i].yst_mtime);
 }
 
 /* error reporting function, similar to GNU error() */
@@ -149,7 +147,114 @@ ssize_t xwrite(int fd, void *buf, size_t len) {
 	return offset;
 }
 
+static void init_obj_list(void) {
+	object *obj;
+	unsigned idx;
+
+	for (idx = 0; idx < HASH_SIZE; idx++)
+		obj_list[idx] = NULL;
+	last_dir_id = 0;
+
+	obj = malloc(offsetof(object, path_name) + 2);
+	if (obj == NULL)
+		prt_err(1, 0, "Malloc struct object failed.");
+
+	obj->id = YAFFS_OBJECTID_ROOT;
+	obj->type = YAFFS_OBJECT_TYPE_DIRECTORY;
+	obj->prev_dir_id = 0;
+	obj->atime = obj->mtime = 0;
+	strcpy(obj->path_name, ".");
+	idx = obj->id % HASH_SIZE;
+	obj->next = obj_list[idx];
+	obj_list[idx] = obj;
+}
+
+static object *get_object(unsigned id) {
+	object *obj;
+
+	obj = obj_list[id % HASH_SIZE];
+	while (obj != NULL && obj->id != id)
+		obj = obj->next;
+	return obj;
+}
+
+static object *add_object(yaffs_ObjectHeader *oh, yaffs_PackedTags2 *pt) {
+	object *obj, *parent;
+	unsigned idx;
+
+	obj = get_object(pt->t.objectId);
+	if (pt->t.objectId == YAFFS_OBJECTID_ROOT) {
+		if (obj == NULL)
+			prt_err(1, 0, "Missing root object");
+		if (oh->type != YAFFS_OBJECT_TYPE_DIRECTORY)
+			prt_err(1, 0, "Root object must be directory");
+		if (last_dir_id == 0)
+			last_dir_id = YAFFS_OBJECTID_ROOT;
+	} else {
+		if (oh->type != YAFFS_OBJECT_TYPE_FILE &&
+		    oh->type != YAFFS_OBJECT_TYPE_DIRECTORY &&
+		    oh->type != YAFFS_OBJECT_TYPE_SYMLINK &&
+		    oh->type != YAFFS_OBJECT_TYPE_HARDLINK &&
+		    oh->type != YAFFS_OBJECT_TYPE_SPECIAL &&
+		    oh->type != YAFFS_OBJECT_TYPE_UNKNOWN)
+			prt_err(1, 0, "Illegal type %d in object %u (%s)",
+			        oh->type, pt->t.objectId, oh->name);
+		if (oh->name[0] == '\0' || strchr(oh->name, '/') != NULL ||
+		    strcmp(oh->name, ".") == 0 || strcmp(oh->name, "..") == 0)
+			prt_err(1, 0, "Illegal file name %s in object %u",
+			        oh->name, pt->t.objectId);
+		if (obj != NULL)
+			prt_err(1, 0, "Duplicate objectId %u", pt->t.objectId);
+		parent = get_object(oh->parentObjectId);
+		if (parent == NULL)
+			prt_err(1, 0, "Invalid parentObjectId %u in object %u (%s)",
+	        		oh->parentObjectId, pt->t.objectId, oh->name);
+		if (parent->type != YAFFS_OBJECT_TYPE_DIRECTORY)
+			prt_err(1, ENOTDIR, "File %s can't be created in %s",
+	        		oh->name, parent->path_name);
+		obj = malloc(offsetof(object, path_name) +
+		             strlen(parent->path_name) + strlen(oh->name) + 2);
+		if (obj == NULL)
+			prt_err(1, 0, "Malloc struct object failed.");
+
+		obj->id = pt->t.objectId;
+		obj->type = oh->type;
+		if (obj->type == YAFFS_OBJECT_TYPE_DIRECTORY) {
+			obj->prev_dir_id = last_dir_id;
+			last_dir_id = obj->id;
+		} else
+			obj->prev_dir_id = 0;
+		if (strcmp(parent->path_name, ".") == 0) {
+			strcpy(obj->path_name, oh->name);
+		} else {
+			strcpy(obj->path_name, parent->path_name);
+			strcat(obj->path_name, "/");
+			strcat(obj->path_name, oh->name);
+		}
+		idx = obj->id % HASH_SIZE;
+		obj->next = obj_list[idx];
+		obj_list[idx] = obj;
+	}
+
+	obj->atime = oh->yst_atime;
+	obj->mtime = oh->yst_mtime;
+
+	return obj;
+}
+
+void set_dirs_utime(void) {
+	unsigned id;
+	object *obj;
+
+	id = last_dir_id;
+	while (id != 0 && (obj = get_object(id)) != NULL) {
+		set_utime(obj->path_name, obj->atime, obj->mtime);
+		id = obj->prev_dir_id;
+	}
+}
+
 static void prt_node(char *name, yaffs_ObjectHeader *oh) {
+	object *eq_obj;
 	struct tm tm;
 	time_t mtime;
 	mode_t mode;
@@ -159,7 +264,8 @@ static void prt_node(char *name, yaffs_ObjectHeader *oh) {
 	char fsize[16];
 	char perm[10];
 
-	/* get file type */
+	/* get file type, size, mtine and mode */
+	eq_obj = NULL;
 	strcpy(fsize, "0");
 	mtime = oh->yst_mtime;
 	mode  = oh->yst_mode;
@@ -170,7 +276,9 @@ static void prt_node(char *name, yaffs_ObjectHeader *oh) {
 		case YAFFS_OBJECT_TYPE_DIRECTORY:	type = 'd'; break;
 		case YAFFS_OBJECT_TYPE_SYMLINK:		type = 'l'; break;
 		case YAFFS_OBJECT_TYPE_HARDLINK:	type = 'h';
-			mtime = 0; mode = STD_PERMS;
+			eq_obj = get_object(oh->equivalentObjectId);
+			mtime = eq_obj != NULL ? eq_obj->mtime : 0;
+			mode = STD_PERMS;
 			break;
 		case YAFFS_OBJECT_TYPE_SPECIAL:
 			switch (oh->yst_mode & S_IFMT) {
@@ -211,11 +319,10 @@ static void prt_node(char *name, yaffs_ObjectHeader *oh) {
 
 	/* link destination */
 	if (oh->type == YAFFS_OBJECT_TYPE_HARDLINK) {
-		if (oh->equivalentObjectId >= MAX_OBJECTS ||
-		    obj_list[oh->equivalentObjectId] == NULL)
+		if (eq_obj == NULL)
 			printf(" -> !!! Invalid !!!");
 		else
-			printf(" -> /%s", obj_list[oh->equivalentObjectId]);
+			printf(" -> /%s", eq_obj->path_name);
 	} else if (oh->type == YAFFS_OBJECT_TYPE_SYMLINK) {
 		printf(" -> %s", oh->alias);
 	}
@@ -226,41 +333,18 @@ int read_chunk(void);
 
 void process_chunk(void) {
 	int out_file, remain, s;
-	char *full_path_name;
+	object *obj, *eq_obj;
 
 	yaffs_PackedTags2 *pt = (yaffs_PackedTags2 *)spare_data;
 	if (pt->t.byteCount == 0xffff) {	/* a new object */
 		yaffs_ObjectHeader oh = *(yaffs_ObjectHeader *)chunk_data;
-
-		if (pt->t.objectId >= MAX_OBJECTS)
-			prt_err(1, 0, "ObjectId %u (%s) out of range.",
-			        pt->t.objectId, oh.name);
-		if (oh.parentObjectId >= MAX_OBJECTS || obj_list[oh.parentObjectId] == NULL)
-			prt_err(1, 0, "Invalid parentObjectId %u in object %u (%s)",
-			        oh.parentObjectId, pt->t.objectId, oh.name);
-
-		if (pt->t.objectId == YAFFS_OBJECTID_ROOT) {
-			full_path_name = obj_list[YAFFS_OBJECTID_ROOT];
-		} else {
-			full_path_name = (char *)malloc(strlen(oh.name) + strlen(obj_list[oh.parentObjectId]) + 2);
-			if (full_path_name == NULL)
-				prt_err(1, 0, "Malloc full path name failed.");
-
-			if (oh.parentObjectId == YAFFS_OBJECTID_ROOT) {
-				strcpy(full_path_name, oh.name);
-			} else {
-				strcpy(full_path_name, obj_list[oh.parentObjectId]);
-				strcat(full_path_name, "/");
-				strcat(full_path_name, oh.name);
-			}
-			obj_list[pt->t.objectId] = full_path_name;
-		}
+		obj = add_object(&oh, pt);
 
 		/* listing */
 		if (opt_verbose)
-			prt_node(full_path_name, &oh);
+			prt_node(obj->path_name, &oh);
 		else if (opt_list)
-			printf("%s\n", full_path_name);
+			printf("%s\n", obj->path_name);
 		if (opt_list) {
 			if (oh.type == YAFFS_OBJECT_TYPE_FILE) {
 				remain = oh.fileSize;
@@ -276,53 +360,54 @@ void process_chunk(void) {
 		switch(oh.type) {
 			case YAFFS_OBJECT_TYPE_FILE:
 				remain = oh.fileSize;
-				out_file = creat(full_path_name, oh.yst_mode & STD_PERMS);
+				out_file = creat(obj->path_name, oh.yst_mode & STD_PERMS);
 				if (out_file < 0)
-					prt_err(1, errno, "Can't create file %s", full_path_name);
+					prt_err(1, errno, "Can't create file %s", obj->path_name);
 				while(remain > 0) {
 					if (!read_chunk())
 						prt_err(1, 0, "Broken image file");
 					s = (remain < pt->t.byteCount) ? remain : pt->t.byteCount;
 					if (xwrite(out_file, chunk_data, s) < 0)
-						prt_err(1, errno, "Can't write to %s", full_path_name);
+						prt_err(1, errno, "Can't write to %s", obj->path_name);
 					remain -= s;
 				}
 				close(out_file);
-				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
+				lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
 				if ((oh.yst_mode & EXTRA_PERMS) != 0 &&
-				    chmod(full_path_name, oh.yst_mode) < 0)
-					prt_err(0, errno, "Warning: Can't chmod %s", full_path_name);
+				    chmod(obj->path_name, oh.yst_mode) < 0)
+					prt_err(0, errno, "Warning: Can't chmod %s", obj->path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_SYMLINK:
-				if (symlink(oh.alias, full_path_name) < 0)
-					prt_err(1, errno, "Can't create symlink %s", full_path_name);
-				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
+				if (symlink(oh.alias, obj->path_name) < 0)
+					prt_err(1, errno, "Can't create symlink %s", obj->path_name);
+				lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_DIRECTORY:
 				if (pt->t.objectId != YAFFS_OBJECTID_ROOT &&
-				    mkdir(full_path_name, oh.yst_mode & STD_PERMS) < 0)
-						prt_err(1, errno, "Can't create directory %s", full_path_name);
-				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
+				    mkdir(obj->path_name, oh.yst_mode & STD_PERMS) < 0)
+						prt_err(1, errno, "Can't create directory %s", obj->path_name);
+				lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
 				if ((pt->t.objectId == YAFFS_OBJECTID_ROOT ||
 				     (oh.yst_mode & EXTRA_PERMS) != 0) &&
-				    chmod(full_path_name, oh.yst_mode) < 0)
-					prt_err(0, errno, "Warning: Can't chmod %s", full_path_name);
+				    chmod(obj->path_name, oh.yst_mode) < 0)
+					prt_err(0, errno, "Warning: Can't chmod %s", obj->path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_HARDLINK:
-				if (oh.equivalentObjectId >= MAX_OBJECTS || obj_list[oh.equivalentObjectId] == NULL)
+				eq_obj = get_object(oh.equivalentObjectId);
+				if (eq_obj == NULL)
 					prt_err(1, 0, "Invalid equivalentObjectId %u in object %u (%s)",
 					        oh.equivalentObjectId, pt->t.objectId, oh.name);
-				if (link(obj_list[oh.equivalentObjectId], full_path_name) < 0)
-					prt_err(1, errno, "Can't create hardlink %s", full_path_name);
+				if (link(eq_obj->path_name, obj->path_name) < 0)
+					prt_err(1, errno, "Can't create hardlink %s", obj->path_name);
 				break;
 			case YAFFS_OBJECT_TYPE_SPECIAL:
-				if (mknod(full_path_name, oh.yst_mode, oh.yst_rdev) < 0) {
+				if (mknod(obj->path_name, oh.yst_mode, oh.yst_rdev) < 0) {
 					if (errno == EPERM || errno == EINVAL)
-						prt_err(0, errno, "Warning: Can't create device %s", full_path_name);
+						prt_err(0, errno, "Warning: Can't create device %s", obj->path_name);
 					else
-						prt_err(1, errno, "Can't create device %s", full_path_name);
+						prt_err(1, errno, "Can't create device %s", obj->path_name);
 				}
-				lchown(full_path_name, oh.yst_uid, oh.yst_gid);
+				lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
 				break;
 			case YAFFS_OBJECT_TYPE_UNKNOWN:
 				break;
@@ -335,17 +420,10 @@ void process_chunk(void) {
 #ifdef HAS_LUTIMES
 			case YAFFS_OBJECT_TYPE_SYMLINK:
 #endif
-				set_utime(full_path_name,
+				set_utime(obj->path_name,
 				          oh.yst_atime, oh.yst_mtime);
 				break;
 			case YAFFS_OBJECT_TYPE_DIRECTORY:
-				if (dir_count >= MAX_DIRS)
-					prt_err(1, 0, "Too many directories (more than %d).", MAX_DIRS);
-				dir_list[dir_count].path_name = full_path_name;
-				dir_list[dir_count].yst_atime = oh.yst_atime;
-				dir_list[dir_count].yst_mtime = oh.yst_mtime;
-				dir_count++;
-				break;
 			default:
 				break;
 		}
@@ -480,7 +558,7 @@ int main(int argc, char **argv) {
 
 	umask(0);
 
-	obj_list[YAFFS_OBJECTID_ROOT] = ".";
+	init_obj_list();
 	while (read_chunk()) {
 		process_chunk();
 	}
