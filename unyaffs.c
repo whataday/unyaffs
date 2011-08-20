@@ -258,8 +258,6 @@ static void prt_node(char *name, yaffs_ObjectHeader *oh) {
 	struct tm tm;
 	time_t mtime;
 	mode_t mode;
-	int  mask;
-	int  idx;
 	char type;
 	char fsize[16];
 	char perm[10];
@@ -301,14 +299,19 @@ static void prt_node(char *name, yaffs_ObjectHeader *oh) {
 	}
 
 	/* get file permissions */
-	strcpy(perm, "rwxrwxrwx");
-	for (idx = 8, mask = 1; idx >= 0; idx--, mask<<=1) {
-		if ((mode & mask) == 0)
-			perm[idx] = '-';
-	}
+	perm[0] = mode & S_IRUSR ? 'r' : '-';
+	perm[1] = mode & S_IWUSR ? 'w' : '-';
+	perm[2] = mode & S_IXUSR ? 'x' : '-';
+	perm[3] = mode & S_IRGRP ? 'r' : '-';
+	perm[4] = mode & S_IWGRP ? 'w' : '-';
+	perm[5] = mode & S_IXGRP ? 'x' : '-';
+	perm[6] = mode & S_IROTH ? 'r' : '-';
+	perm[7] = mode & S_IWOTH ? 'w' : '-';
+	perm[8] = mode & S_IXOTH ? 'x' : '-';
 	if (mode & S_ISUID) perm[2] = perm[2] == '-' ? 'S' : 's';
 	if (mode & S_ISGID) perm[5] = perm[5] == '-' ? 'S' : 's';
 	if (mode & S_ISVTX) perm[8] = perm[8] == '-' ? 'T' : 't';
+	perm[9] = '\0';
 
 	/* print file infos */
 	localtime_r(&mtime, &tm);
