@@ -335,106 +335,112 @@ static void prt_node(char *name, yaffs_ObjectHeader *oh) {
 int read_chunk(void);
 
 void process_chunk(void) {
-	int out_file, remain, s;
+	yaffs_ObjectHeader oh;
+	yaffs_PackedTags2 *pt;
 	object *obj, *eq_obj;
+	int out_file, remain, s;
 
-	yaffs_PackedTags2 *pt = (yaffs_PackedTags2 *)spare_data;
-	if (pt->t.byteCount == 0xffff) {	/* a new object */
-		yaffs_ObjectHeader oh = *(yaffs_ObjectHeader *)chunk_data;
-		obj = add_object(&oh, pt);
+	oh = *(yaffs_ObjectHeader *)chunk_data;
+	pt = (yaffs_PackedTags2 *)spare_data;
 
-		/* listing */
-		if (opt_verbose)
-			prt_node(obj->path_name, &oh);
-		else if (opt_list)
-			printf("%s\n", obj->path_name);
-		if (opt_list) {
-			if (oh.type == YAFFS_OBJECT_TYPE_FILE) {
-				remain = oh.fileSize;
-				while(remain > 0) {
-					if (!read_chunk())
-						prt_err(1, 0, "Broken image file");
-					remain -= pt->t.byteCount;
-				}
-			}
-			return;
-		}
-
-		switch(oh.type) {
-			case YAFFS_OBJECT_TYPE_FILE:
-				remain = oh.fileSize;
-				out_file = creat(obj->path_name, oh.yst_mode & STD_PERMS);
-				if (out_file < 0)
-					prt_err(1, errno, "Can't create file %s", obj->path_name);
-				while(remain > 0) {
-					if (!read_chunk())
-						prt_err(1, 0, "Broken image file");
-					s = (remain < pt->t.byteCount) ? remain : pt->t.byteCount;
-					if (xwrite(out_file, chunk_data, s) < 0)
-						prt_err(1, errno, "Can't write to %s", obj->path_name);
-					remain -= s;
-				}
-				close(out_file);
-				lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
-				if ((oh.yst_mode & EXTRA_PERMS) != 0 &&
-				    chmod(obj->path_name, oh.yst_mode) < 0)
-					prt_err(0, errno, "Warning: Can't chmod %s", obj->path_name);
-				break;
-			case YAFFS_OBJECT_TYPE_SYMLINK:
-				if (symlink(oh.alias, obj->path_name) < 0)
-					prt_err(1, errno, "Can't create symlink %s", obj->path_name);
-				lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
-				break;
-			case YAFFS_OBJECT_TYPE_DIRECTORY:
-				if (pt->t.objectId != YAFFS_OBJECTID_ROOT &&
-				    mkdir(obj->path_name, oh.yst_mode & STD_PERMS) < 0)
-						prt_err(1, errno, "Can't create directory %s", obj->path_name);
-				lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
-				if ((pt->t.objectId == YAFFS_OBJECTID_ROOT ||
-				     (oh.yst_mode & EXTRA_PERMS) != 0) &&
-				    chmod(obj->path_name, oh.yst_mode) < 0)
-					prt_err(0, errno, "Warning: Can't chmod %s", obj->path_name);
-				break;
-			case YAFFS_OBJECT_TYPE_HARDLINK:
-				eq_obj = get_object(oh.equivalentObjectId);
-				if (eq_obj == NULL)
-					prt_err(1, 0, "Invalid equivalentObjectId %u in object %u (%s)",
-					        oh.equivalentObjectId, pt->t.objectId, oh.name);
-				if (link(eq_obj->path_name, obj->path_name) < 0)
-					prt_err(1, errno, "Can't create hardlink %s", obj->path_name);
-				break;
-			case YAFFS_OBJECT_TYPE_SPECIAL:
-				if (mknod(obj->path_name, oh.yst_mode, oh.yst_rdev) < 0) {
-					if (errno == EPERM || errno == EINVAL)
-						prt_err(0, errno, "Warning: Can't create device %s", obj->path_name);
-					else
-						prt_err(1, errno, "Can't create device %s", obj->path_name);
-				}
-				lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
-				break;
-			case YAFFS_OBJECT_TYPE_UNKNOWN:
-				break;
-		}
-
-		/* set file date and time */
-		switch(oh.type) {
-			case YAFFS_OBJECT_TYPE_FILE:
-			case YAFFS_OBJECT_TYPE_SPECIAL:
-#ifdef HAS_LUTIMES
-			case YAFFS_OBJECT_TYPE_SYMLINK:
-#endif
-				set_utime(obj->path_name,
-				          oh.yst_atime, oh.yst_mtime);
-				break;
-			case YAFFS_OBJECT_TYPE_DIRECTORY:
-			default:
-				break;
-		}
-	} else if (pt->t.byteCount != 0xffffffff) {	/* not empty */
+	if (pt->t.byteCount == 0xffffffff)	/* empty object */
+		return;
+	else if (pt->t.byteCount != 0xffff) {	/* not a new object */
 		prt_err(0, 0, "Warning: Invalid header at chunk #%d, skipping...",
 		        chunk_no);
 		if (++warn_count >= MAX_WARN)
 			prt_err(1, 0, "Giving up");
+		return;
+	}
+
+	obj = add_object(&oh, pt);
+
+	/* listing */
+	if (opt_verbose)
+		prt_node(obj->path_name, &oh);
+	else if (opt_list)
+		printf("%s\n", obj->path_name);
+	if (opt_list) {
+		if (oh.type == YAFFS_OBJECT_TYPE_FILE) {
+			remain = oh.fileSize;	/* skip over data chunks */
+			while(remain > 0) {
+				if (!read_chunk())
+					prt_err(1, 0, "Broken image file");
+				remain -= pt->t.byteCount;
+			}
+		}
+		return;
+	}
+
+	switch(oh.type) {
+		case YAFFS_OBJECT_TYPE_FILE:
+			remain = oh.fileSize;
+			out_file = creat(obj->path_name, oh.yst_mode & STD_PERMS);
+			if (out_file < 0)
+				prt_err(1, errno, "Can't create file %s", obj->path_name);
+			while(remain > 0) {
+				if (!read_chunk())
+					prt_err(1, 0, "Broken image file");
+				s = (remain < pt->t.byteCount) ? remain : pt->t.byteCount;
+				if (xwrite(out_file, chunk_data, s) < 0)
+					prt_err(1, errno, "Can't write to %s", obj->path_name);
+				remain -= s;
+			}
+			close(out_file);
+			lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
+			if ((oh.yst_mode & EXTRA_PERMS) != 0 &&
+			    chmod(obj->path_name, oh.yst_mode) < 0)
+				prt_err(0, errno, "Warning: Can't chmod %s", obj->path_name);
+			break;
+		case YAFFS_OBJECT_TYPE_SYMLINK:
+			if (symlink(oh.alias, obj->path_name) < 0)
+				prt_err(1, errno, "Can't create symlink %s", obj->path_name);
+			lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
+			break;
+		case YAFFS_OBJECT_TYPE_DIRECTORY:
+			if (pt->t.objectId != YAFFS_OBJECTID_ROOT &&
+			    mkdir(obj->path_name, oh.yst_mode & STD_PERMS) < 0)
+					prt_err(1, errno, "Can't create directory %s", obj->path_name);
+			lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
+			if ((pt->t.objectId == YAFFS_OBJECTID_ROOT ||
+			     (oh.yst_mode & EXTRA_PERMS) != 0) &&
+			    chmod(obj->path_name, oh.yst_mode) < 0)
+				prt_err(0, errno, "Warning: Can't chmod %s", obj->path_name);
+			break;
+		case YAFFS_OBJECT_TYPE_HARDLINK:
+			eq_obj = get_object(oh.equivalentObjectId);
+			if (eq_obj == NULL)
+				prt_err(1, 0, "Invalid equivalentObjectId %u in object %u (%s)",
+				        oh.equivalentObjectId, pt->t.objectId, oh.name);
+			if (link(eq_obj->path_name, obj->path_name) < 0)
+				prt_err(1, errno, "Can't create hardlink %s", obj->path_name);
+			break;
+		case YAFFS_OBJECT_TYPE_SPECIAL:
+			if (mknod(obj->path_name, oh.yst_mode, oh.yst_rdev) < 0) {
+				if (errno == EPERM || errno == EINVAL)
+					prt_err(0, errno, "Warning: Can't create device %s", obj->path_name);
+				else
+					prt_err(1, errno, "Can't create device %s", obj->path_name);
+			}
+			lchown(obj->path_name, oh.yst_uid, oh.yst_gid);
+			break;
+		case YAFFS_OBJECT_TYPE_UNKNOWN:
+			break;
+	}
+
+	/* set file date and time */
+	switch(oh.type) {
+		case YAFFS_OBJECT_TYPE_FILE:
+		case YAFFS_OBJECT_TYPE_SPECIAL:
+#ifdef HAS_LUTIMES
+		case YAFFS_OBJECT_TYPE_SYMLINK:
+#endif
+			set_utime(obj->path_name,
+			          oh.yst_atime, oh.yst_mtime);
+			break;
+		case YAFFS_OBJECT_TYPE_DIRECTORY:
+		default:
+			break;
 	}
 }
 
