@@ -45,7 +45,7 @@ Usage
   unyaffs extracts all the files from a YAFFS2 image file into the current
   directory.
 
-  unyaffs [-l <layout>] [-t] [-v] <image_file_name>
+  unyaffs [-l <layout>] [-t] [-v] [-V] <image_file_name>
       -l <layout>      set flash memory layout
           layout=0: detect chunk and spare size (default)
           layout=1:  2K chunk,  64 byte spare size
@@ -54,6 +54,7 @@ Usage
           layout=4: 16K chunk, 512 byte spare size
       -t               list image contents
       -v               verbose output
+      -V               print version
 
   In most cases the flash memory layout is detected automatically.
   If the detection doesn't work properly, the layout can be set with

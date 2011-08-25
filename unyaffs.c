@@ -2,10 +2,28 @@
  * unyaffs: extract files from yaffs2 file system image to current directory
  *
  * Created by Kai Wei <kai.wei.cn@gmail.com>
+ * Modified by Bernhard Ehlers <be@bernhard-ehlers.de>
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+
+/*
+ * History:
+ * V0.1  2008-12-29
+ *   Initial version uploaded to http://code.google.com/p/unyaffs/
+ * V0.8  2011-08-25
+ *   Fork created at https://github.com/ehlers/unyaffs
+ *   Support of chunksizes from 2k to 16k
+ *   Restore special files (device nodes)
+ *   Restore file date and time
+ *   Restore file ownership, when run as root
+ *   File listing
+ *   Much more error checking
+ */
+
+#define VERSION		"0.8"
 
 /* check if lutimes is available */
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || (defined(__APPLE__) && defined(__MACH__))
@@ -508,7 +526,9 @@ void detect_chunk_size(void) {
 
 void usage(void) {
 	fprintf(stderr, "\
-Usage: unyaffs [-l <layout>] [-t] [-v] <image_file_name>\n\
+unyaffs - extract files from a YAFFS2 file system image.\n\
+\n\
+Usage: unyaffs [-l <layout>] [-t] [-v] [-V] <image_file_name>\n\
     -l <layout>      set flash memory layout\n\
         layout=0: detect chunk and spare size (default)\n\
         layout=1:  2K chunk,  64 byte spare size\n\
@@ -517,6 +537,7 @@ Usage: unyaffs [-l <layout>] [-t] [-v] <image_file_name>\n\
         layout=4: 16K chunk, 512 byte spare size\n\
     -t               list image contents\n\
     -v               verbose output\n\
+    -V               print version\n\
 ");
 	exit(1);
 }
@@ -528,7 +549,7 @@ int main(int argc, char **argv) {
 	/* handle command line options */
 	opt_list = 0;
 	opt_verbose = 0;
-	while ((ch = getopt(argc, argv, "l:tvh?")) > 0) {
+	while ((ch = getopt(argc, argv, "l:tvVh?")) > 0) {
 		switch (ch) {
 			case 'l':
 				if (optarg[0] < '0' ||
@@ -541,6 +562,10 @@ int main(int argc, char **argv) {
 				break;
 			case 'v':
 				opt_verbose = 1;
+				break;
+			case 'V':
+				printf("V%s\n", VERSION);
+				exit(0);
 				break;
 			case 'h':
 			case '?':
