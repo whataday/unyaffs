@@ -67,10 +67,13 @@ static struct t_layout {
 int max_layout = sizeof(possible_layouts) / sizeof(struct t_layout);
 
 unsigned char data[MAX_CHUNK_SIZE + MAX_SPARE_SIZE];
+unsigned char buffer[2*(MAX_CHUNK_SIZE + MAX_SPARE_SIZE)];
 unsigned char *chunk_data = data;
 unsigned char *spare_data = NULL;
 int chunk_size = 2048;
 int spare_size = 64;
+int buf_len = 0;
+int buf_idx = 0;
 int chunk_no   = 0;
 int warn_count = 0;
 int img_file;
@@ -464,34 +467,44 @@ void process_chunk(void) {
 
 
 int read_chunk(void) {
-	ssize_t s;
+	ssize_t s, len, offset;
 
 	chunk_no++;
+	len = chunk_size + spare_size;
+	offset = 0;
 	memset(chunk_data, 0xff, sizeof(chunk_data));
-	s = xread(img_file, data, chunk_size + spare_size);
-	if (s < 0) {
-		prt_err(1, errno, "Read image file");
-	} else if (s != 0 && s != (chunk_size + spare_size)) {
-		prt_err(1, 0, "Broken image file");
+
+	if (buf_len > buf_idx) {		/* copy from buffer */
+		s = buf_len - buf_idx;
+		if (s > len) s = len;
+		memcpy(data, buffer+buf_idx, s);
+		buf_idx += s; offset += s;
 	}
-	return s != 0;
+
+	if (offset < len) {			/* read from file */
+		s = xread(img_file, data+offset, len-offset);
+		if (s < 0)
+			prt_err(1, errno, "Read image file");
+		offset += s;
+	}
+
+	if (offset != 0 && offset != len)	/* partial chunk */
+		prt_err(1, 0, "Broken image file");
+
+	return offset != 0;
 }
 
 void detect_chunk_size(void) {
-	unsigned char buf[2*(MAX_CHUNK_SIZE + MAX_SPARE_SIZE)];
 	yaffs_ObjectHeader *oh;
 	yaffs_PackedTags2  *pt, *pt2;
-	ssize_t  len;
 	int      i;
 
-	memset(buf, 0xff, sizeof(buf));
-	len = xread(img_file, buf, sizeof(buf));
-	if (len < 0)
+	memset(buffer, 0xff, sizeof(buffer));
+	buf_len = xread(img_file, buffer, sizeof(buffer));
+	if (buf_len < 0)
 		prt_err(1, errno, "Read image file");
-	if (lseek(img_file, 0, SEEK_SET) < 0)
-		prt_err(1, errno, "Seek to begin of image file");
 
-	oh = (yaffs_ObjectHeader *)buf;
+	oh = (yaffs_ObjectHeader *)buffer;
 	if (oh->parentObjectId != YAFFS_OBJECTID_ROOT ||
 	    (oh->type          != YAFFS_OBJECT_TYPE_FILE &&
 	     oh->type          != YAFFS_OBJECT_TYPE_DIRECTORY &&
@@ -502,9 +515,9 @@ void detect_chunk_size(void) {
 
 	for (i = 0; i < max_layout; i++) {
  		pt  = (yaffs_PackedTags2 *)
-		      (buf + possible_layouts[i].chunk_size);
+		      (buffer + possible_layouts[i].chunk_size);
 		pt2 = (yaffs_PackedTags2 *)
-		      (buf + 2 * possible_layouts[i].chunk_size +
+		      (buffer + 2 * possible_layouts[i].chunk_size +
 		       possible_layouts[i].spare_size);
 
 		if (pt->t.byteCount == 0xffff && pt->t.chunkId == 0 &&
@@ -578,9 +591,13 @@ int main(int argc, char **argv) {
 	/* extract rest of command line parameters */
 	if ((argc - optind) !=  1) usage();
 
-	img_file = open(argv[optind], O_RDONLY);
-	if (img_file < 0)
-		prt_err(1, errno, "Open image file failed");
+	if (strcmp(argv[optind], "-") == 0) {	/* image file from stdin ? */
+		img_file = 0;
+	} else {
+		img_file = open(argv[optind], O_RDONLY);
+		if (img_file < 0)
+			prt_err(1, errno, "Open image file failed");
+	}
 
 	if (layout == 0) {
 		detect_chunk_size();

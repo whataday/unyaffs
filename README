@@ -65,6 +65,8 @@ Usage
   When combined with -t it generates an extended file listing, nothing
   is extracted.
 
+  The image file can be - for standard input.
+
   unyaffs extracts all file types (regular files, directories, soft links,
   hard links and special files). The permissions and modification dates
   are restored. When run as root, the ownership is restored as well.
