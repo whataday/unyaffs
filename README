@@ -42,10 +42,9 @@ Compiling
 Usage
 -----
 
-  unyaffs extracts all the files from a YAFFS2 image file into the current
-  directory.
+  unyaffs extracts all the files from a YAFFS2 file system image.
 
-  unyaffs [-l <layout>] [-t] [-v] [-V] <image_file_name>
+  unyaffs [-l <layout>] [-t] [-v] [-V] <image_file_name> [<base dir>]
       -l <layout>      set flash memory layout
           layout=0: detect chunk and spare size (default)
           layout=1:  2K chunk,  64 byte spare size
@@ -66,6 +65,9 @@ Usage
   is extracted.
 
   The image file can be - for standard input.
+
+  If the base directory is not given, the filea are extracted into the
+  current directory. If the base dir doesn't exist, it will be created.
 
   unyaffs extracts all file types (regular files, directories, soft links,
   hard links and special files). The permissions and modification dates

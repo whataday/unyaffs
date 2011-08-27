@@ -168,6 +168,35 @@ ssize_t xwrite(int fd, void *buf, size_t len) {
 	return offset;
 }
 
+/*
+ * mkdirpath - creates directories including intermediate dirs
+ */
+static int mkdirpath(const char *name) {
+	struct stat st;
+	char *cp;
+	char *buf;
+	int ret;
+
+	ret = 0;
+	if ((buf = malloc(strlen(name)+2)) == NULL)
+		{ errno = ENOMEM; return -1; }
+	strcpy(buf, name); strcat(buf, "/");
+	for (cp = buf; *cp == '/'; cp++);
+	while ((cp = strchr(cp, '/')) != NULL) {
+		*cp = '\0';
+		if (mkdir(buf, STD_PERMS) < 0 && errno != EEXIST)
+			{ ret = -1; break; }
+		*cp++ = '/';
+	}
+	free(buf);
+
+	if (ret >= 0 &&
+	    (ret = stat(name, &st)) >= 0 && !S_ISDIR(st.st_mode)) {
+		ret = -1; errno = ENOTDIR;
+	}
+	return ret;
+}
+
 static void init_obj_list(void) {
 	object *obj;
 	unsigned idx;
@@ -541,7 +570,7 @@ void usage(void) {
 	fprintf(stderr, "\
 unyaffs - extract files from a YAFFS2 file system image.\n\
 \n\
-Usage: unyaffs [-l <layout>] [-t] [-v] [-V] <image_file_name>\n\
+Usage: unyaffs [-l <layout>] [-t] [-v] [-V] <image_file_name> [<base dir>]\n\
     -l <layout>      set flash memory layout\n\
         layout=0: detect chunk and spare size (default)\n\
         layout=1:  2K chunk,  64 byte spare size\n\
@@ -589,7 +618,8 @@ int main(int argc, char **argv) {
 	}
 
 	/* extract rest of command line parameters */
-	if ((argc - optind) !=  1) usage();
+	if ((argc - optind) < 1 || (argc - optind) > 2)
+		usage();
 
 	if (strcmp(argv[optind], "-") == 0) {	/* image file from stdin ? */
 		img_file = 0;
@@ -606,6 +636,13 @@ int main(int argc, char **argv) {
 		spare_size = possible_layouts[layout-1].spare_size;
 	}
 	spare_data = data + chunk_size;
+
+	if ((argc - optind) == 2 && !opt_list) {
+		if (mkdirpath(argv[optind+1]) < 0)
+			prt_err(1, errno, "Can't mkdir %s", argv[optind+1]);
+		if (chdir(argv[optind+1]) < 0)
+			prt_err(1, errno, "Can't chdir to %s", argv[optind+1]);
+	}
 
 	umask(0);
 
