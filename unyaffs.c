@@ -21,9 +21,12 @@
  *   Restore file ownership, when run as root
  *   File listing
  *   Much more error checking
+ * V0.9  2011-09-03
+ *   Allow - as filename for stdin
+ *   Optional base dir for file extraction
  */
 
-#define VERSION		"0.8"
+#define VERSION		"0.9"
 
 /* check if lutimes is available */
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || (defined(__APPLE__) && defined(__MACH__))
